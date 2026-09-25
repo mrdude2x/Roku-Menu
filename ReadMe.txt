@@ -1,0 +1,206 @@
+============================================================
+        ROKUMENU  (GON / UE5 in-game menu)
+============================================================
+
+An in-game menu for the same cheats as GONTrainer, plus
+camera tools and saved mouse/volume settings.
+==This could break with an update and I may not update this==
+
+Compatible with UE4SS Latest Experimental.
+Do NOT run this and GONTrainer at the same time. Both would
+load and the hotkeys would fire twice. Use RokuMenu instead
+of GONTrainer when you want the menu.
+
+------------------------------------------------------------
+PACKAGE CONTENTS
+------------------------------------------------------------
+Copy the CONTENTS of this folder into ue4ss\Mods.
+
+  shared\ModMenu\ModMenu.lua     menu framework (v1.4.0)
+  RokuMenu\enabled.txt           turns the mod on
+  RokuMenu\Scripts\main.lua      menu and hotkeys
+  RokuMenu\Scripts\core.lua      game reads and writes
+
+You do NOT edit mods.txt. enabled.txt is what turns it on.
+
+NumLock MUST be ON for the number-pad keys. If those keys
+do nothing, tap NumLock and try again. The number row above
+the letters is a different set of keys.
+
+------------------------------------------------------------
+FEATURES
+------------------------------------------------------------
+* Menu on Home. Dock it from the header (left, right, top,
+  bottom). That choice is remembered.
+* Player cheats: god mode, infinite stamina, crouch.
+* Crouch lowers the view, cuts your speed to 70%, and
+  shrinks Roku's head vision box to 10%.
+* Roku: ghost, freeze, 5% slo-mo, max drunk, force spankable.
+* Ghost drops a chase once and leaves her senses off.
+  Drunk and spank still work.
+* Apples 65/66 and notes complete.
+* 13-skin outfit list, same as GONTrainer.
+* Camera: hide HUD, freecam. WASD, Space up, X down.
+  [ and ] change fly speed from 10% to 300% of walk speed.
+* Noclip is not in v0.1. It was crashing inside level geometry.
+* Settings: mouse, music, and effects. Type a number.
+  Closing the menu saves it and applies it. Values are put
+  back when Roku loads on the main menu.
+* Bindings tab: Assign, then press a key. Esc cancels.
+  Home cannot be reassigned. Hotkeys do nothing while the
+  menu is open, so you can type numbers.
+
+------------------------------------------------------------
+CONTROLS (DEFAULTS)
+------------------------------------------------------------
+NumLock must be ON or the NUM keys will do nothing.
+
+MENU:
+[Home]  - Open / close the menu
+
+PLAYER:
+[NUM 1] - God Mode
+[NUM 2] - Infinite Stamina
+[C]     - Crouch (10% vision box, 70% speed)
+
+ROKU:
+[NUM 3] - Ghost Mode
+[NUM 0] - Freeze Roku
+[NUM .] - Slo-Mo (5%)
+[NUM 7] - Max Drunk
+[NUM 8] - Force Spankable
+
+OBJECTIVE:
+[NUM 4] - Apples 65/66
+
+OUTFITS:
+[NUM 5] - Next outfit
+[NUM 6] - Base outfit
+
+CAMERA:
+[NUM 9] - Hide HUD
+[End]   - Freecam
+[ key   - Fly slower
+] key   - Fly faster
+
+------------------------------------------------------------
+OUTFIT LIST
+------------------------------------------------------------
+1. Base Roku (Top + Pants)
+2. Shirt-Off Roku (censored topless)
+3. Bottomless Roku
+4. Bikini Roku
+5. Source Roku
+6. Bunny Roku (1)   no pasties
+7. Bunny Roku (2)
+8. Sailor Roku (1)
+9. Sailor Roku (2)
+10. Shibari Roku
+11. Uncensored Full Bare
+12. Uncensored Shirtless
+13. Uncensored Bottomless
+
+------------------------------------------------------------
+INSTALLATION
+------------------------------------------------------------
+Two steps. UE4SS first, then drop this mod into Mods.
+
+Stable UE4SS 3.0.1 from GitHub "latest" will NOT work on this
+game (Unreal 5.7). Use Experimental.
+
+
+STEP 1 — EXPERIMENTAL UE4SS
+---------------------------
+1. Steam: Library -> GON: God of Nothing -> gear / right-click
+   -> Manage -> Browse local files. You will see GON.exe.
+   That is the game root. Do not put UE4SS here.
+
+2. Open:  Roku3 -> Binaries -> Win64
+   You must see Roku3-Win64-Shipping.exe.
+
+3. Download Experimental UE4SS (newest date on the page):
+   https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest
+
+   Use ONE of these (numbers change every build):
+     UE4SS_v3.0.1-XXXX-g........zip      quiet player install
+     zDEV-UE4SS_v3.0.1-XXXX-g........zip optional debug console
+
+   Skip "Source code" zips. Skip old xinput zips.
+
+4. Open the zip until you see dwmapi.dll and a ue4ss folder
+   together. Copy BOTH into that Win64 folder, next to
+   Roku3-Win64-Shipping.exe.
+
+   Win64 should now look like:
+     Roku3-Win64-Shipping.exe
+     dwmapi.dll
+     ue4ss\
+       UE4SS.dll
+       Mods\
+
+
+STEP 2 — DROP ROKUMENU INTO MODS
+--------------------------------
+Copy the contents of this archive into:
+
+  ...\GON God Of Nothing\Roku3\Binaries\Win64\ue4ss\Mods\
+
+You should end up with:
+  ...\ue4ss\Mods\shared\ModMenu\ModMenu.lua
+  ...\ue4ss\Mods\RokuMenu\enabled.txt
+  ...\ue4ss\Mods\RokuMenu\Scripts\main.lua
+  ...\ue4ss\Mods\RokuMenu\Scripts\core.lua
+
+If GONTrainer is installed, rename or delete:
+  ...\ue4ss\Mods\GONTrainer\enabled.txt
+
+Do not copy a second "RokuMenu_v0.1" folder into Mods.
+
+
+WRONG (will not load)
+---------------------
+  Next to GON.exe
+  ...\Win64\RokuMenu\
+  ...\ue4ss\Mods\RokuMenu\RokuMenu\
+  ...\ue4ss\Mods\RokuMenu_v0.1\...
+
+
+LAUNCH
+------
+Start the game from Steam. Home opens the menu in the main
+menu and in a level.
+
+If nothing happens, open:
+  ...\Roku3\Binaries\Win64\ue4ss\UE4SS.log
+
+  No log file          = UE4SS is not loading
+  Log, no RokuMenu     = the folder is not inside ue4ss\Mods\
+  You want this line   = Mod 'RokuMenu' has enabled.txt, starting mod.
+  Keys do nothing      = NumLock is off, or the menu is open
+
+LINUX / STEAM DECK (PROTON)
+---------------------------
+If UE4SS fails to start under Proton, add this to the game's
+Steam Launch Options:
+
+  WINEDLLOVERRIDES="dwmapi=n,b" %command%
+
+
+------------------------------------------------------------
+UNINSTALLATION
+------------------------------------------------------------
+Delete:
+  ...\ue4ss\Mods\RokuMenu\
+  ...\ue4ss\Mods\shared\ModMenu\
+
+Only delete shared\ModMenu if no other mod is using it.
+
+------------------------------------------------------------
+CHANGELOG
+------------------------------------------------------------
+v0.1:
+* First menu release. Replaces GONTrainer when you want a panel.
+* Cheats, 13 outfits, ghost, crouch, freecam, hide HUD.
+* Mouse, music, and effects saved when the menu closes.
+* Bindings tab. NumLock required for NUM keys.
+* Noclip is not included. It was crashing inside level geometry.
