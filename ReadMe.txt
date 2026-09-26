@@ -224,6 +224,9 @@ Only delete shared\ModMenu if no other mod is using it.
 ------------------------------------------------------------
 CHANGELOG
 ------------------------------------------------------------
+v0.2.1:
+* Added pdf install guide.
+
 v0.2:
 * Bunny eyes and teeth keep their own materials.
 * Cowbell toggle.
