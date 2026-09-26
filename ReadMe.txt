@@ -30,24 +30,40 @@ the letters is a different set of keys.
 ------------------------------------------------------------
 FEATURES
 ------------------------------------------------------------
-* Menu on Home. Dock it from the header (left, right, top,
+* Menu on Tab. Dock it from the header (left, right, top,
   bottom). That choice is remembered.
 * Player cheats: god mode, infinite stamina, crouch.
 * Crouch lowers the view, cuts your speed to 70%, and
   shrinks Roku's head vision box to 10%.
-* Roku: ghost, freeze, 5% slo-mo, max drunk, force spankable.
+* Roku: ghost, freeze, 5% slo-mo, max drunk, cowbell, follow.
+* Spankable stays on. It is set again every 5 seconds so
+  another spank can start after the animation finishes.
+* Follow sets her approach distance very short and turns
+  off the attack boxes, so she walks toward you without swinging.
+* Item buttons show the hidden prop on her, then play the
+  effect: apple, carrot, wine, beer, glowstick, flashlight.
+  Default keys are 5 6 7 8 9 0 on the number row.
+* Space is a stronger hop. It does nothing while sprinting.
+  It also does nothing while noclip or freecam is on,
+  because Space is up for those.
+* Ghost and Follow are one or the other. Turning one on
+  turns the other off.
 * Ghost drops a chase once and leaves her senses off.
   Drunk and spank still work.
 * Apples 65/66 and notes complete.
 * 13-skin outfit list, same as GONTrainer.
-* Camera: hide HUD, freecam. WASD, Space up, X down.
+* Camera: hide HUD, freecam, noclip. WASD, Space up, X down.
   [ and ] change fly speed from 10% to 300% of walk speed.
-* Noclip is not in v0.1. It was crashing inside level geometry.
+* Noclip turns collision off while you fly. Turning it off in
+  open air drops you. Turning it off inside a wall leaves it
+  on and does not move you. Crouch is blocked while it is on.
+* Bunny 1 and Bunny 2 no longer paint the bunny material
+  over her eyes and teeth.
 * Settings: mouse, music, and effects. Type a number.
   Closing the menu saves it and applies it. Values are put
   back when Roku loads on the main menu.
 * Bindings tab: Assign, then press a key. Esc cancels.
-  Home cannot be reassigned. Hotkeys do nothing while the
+  Tab cannot be reassigned. Hotkeys do nothing while the
   menu is open, so you can type numbers.
 
 ------------------------------------------------------------
@@ -56,12 +72,21 @@ CONTROLS (DEFAULTS)
 NumLock must be ON or the NUM keys will do nothing.
 
 MENU:
-[Home]  - Open / close the menu
+[Tab]   - Open / close the menu
 
 PLAYER:
 [NUM 1] - God Mode
 [NUM 2] - Infinite Stamina
 [C]     - Crouch (10% vision box, 70% speed)
+[Space] - Jump (not while sprinting)
+
+ITEMS (number row, not the numpad):
+[5] - Apple
+[6] - Carrot
+[7] - Wine
+[8] - Beer
+[9] - Glowstick
+[0] - Flashlight
 
 ROKU:
 [NUM 3] - Ghost Mode
@@ -80,6 +105,7 @@ OUTFITS:
 CAMERA:
 [NUM 9] - Hide HUD
 [End]   - Freecam
+[\]     - Noclip
 [ key   - Fly slower
 ] key   - Fly faster
 
@@ -167,7 +193,7 @@ WRONG (will not load)
 
 LAUNCH
 ------
-Start the game from Steam. Home opens the menu in the main
+Start the game from Steam. Tab opens the menu in the main
 menu and in a level.
 
 If nothing happens, open:
@@ -198,6 +224,15 @@ Only delete shared\ModMenu if no other mod is using it.
 ------------------------------------------------------------
 CHANGELOG
 ------------------------------------------------------------
+v0.2:
+* Bunny eyes and teeth keep their own materials.
+* Cowbell toggle.
+* Item event buttons show the hidden prop, then the effect.
+* Spankable holds and refreshes every 5 seconds.
+* Follow: short approach distance, attack boxes off.
+* Noclip is back. Exit in open air only. Inside a wall it stays on.
+* Item keys default to 5 6 7 8 9 0. Space jumps. Not while sprinting.
+
 v0.1:
 * First menu release. Replaces GONTrainer when you want a panel.
 * Cheats, 13 outfits, ghost, crouch, freecam, hide HUD.

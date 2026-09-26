@@ -1,5 +1,5 @@
--- GONCore: all game reads/writes live here.
--- RokuMenu UI and hotkeys only call this module. Fix this file when the game updates.
+-- RokuMenu core: every game read and write lives here.
+-- main.lua is the menu and the hotkeys. Fix this file when the game updates.
 
 local M = {}
 
@@ -9,12 +9,15 @@ local isGhostMode = false
 local isRokuFrozen = false
 local isRokuSlow = false
 local isUiHidden = false
+local isSpankHold = false
+local isCowbell = false
+local isFollow = false
+local followSaved = nil
 local isNoclip = false
 local isFreecam = false
 local isCrouch = false
 local flyScale = 1.0
 local savedPawnLoc = nil
-local noclipSafeLoc = nil
 local savedCamRel = nil
 local savedCamRot = nil
 local savedHalfHeight = nil
@@ -23,6 +26,7 @@ local savedVision = nil
 local flyKeys = nil
 local currentSkinIdx = 1
 local lastLiveRokuNm = ""
+local hadLevelRoku = false
 local savedHudVis = nil
 local listeners = {}
 
@@ -49,6 +53,7 @@ local function SafeGetObjectName(obj)
     return tostring(obj)
 end
 
+-- Live player and Roku. Default__ names are class templates, not actors in the level.
 local function GetPlayerPawn()
     local players = FindAllOf("BP_HorrorCharacter_C") or {}
     for i = 1, #players do
@@ -121,6 +126,7 @@ end
 
 local attackHookInstalled = false
 
+-- Ghost and freeze. Attack montages are blocked. Vision and hearing stay off until it is turned off.
 local function IsAttackName(name)
     local n = string.lower(name or "")
     return string.find(n, "attack", 1, true)
@@ -250,6 +256,7 @@ local function InstallAttackHook()
     end
 end
 
+-- Outfits. Bunny keeps eye and teeth slots. Shirt-off uses the Topless row.
 local clothingPieces = {
     "C_shirt1", "C_pants1",
     "C_sailortop", "C_sailortop2", "C_sailorskirt", "C_sailorskirt2", "C_sailorshibari",
@@ -308,15 +315,34 @@ local function FindBunnyMaterial(version)
     return nil
 end
 
-local function ApplyMaterialToAllSlots(actor, mat)
+local faceWords = { "eye", "teeth", "tooth", "mouth", "lash", "cornea", "iris", "tongue", "gum" }
+
+local function IsFaceMaterial(mat)
+    local name = string.lower(SafeGetObjectName(mat))
+    for i = 1, #faceWords do
+        if string.find(name, faceWords[i], 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function ApplyBunnyBody(actor, mat)
     local mesh = GetMesh(actor)
     if not mat or not mat:IsValid() or not mesh or not mesh:IsValid() then return end
+    local keep = {}
     for slot = 0, 15 do
-        local success, currentMat = pcall(function() return mesh:GetMaterial(slot) end)
-        if success and currentMat and currentMat:IsValid() then
+        local ok, current = pcall(function() return mesh:GetMaterial(slot) end)
+        if not ok or not current or not current:IsValid() then break end
+        if IsFaceMaterial(current) then
+            keep[slot] = current
+        end
+    end
+    for slot = 0, 15 do
+        local ok, current = pcall(function() return mesh:GetMaterial(slot) end)
+        if not ok or not current or not current:IsValid() then break end
+        if not keep[slot] then
             mesh:SetMaterial(slot, mat)
-        else
-            break
         end
     end
 end
@@ -375,7 +401,7 @@ local skins = {
         apply = function(actor)
             HideAllClothing(actor)
             local mat = FindBunnyMaterial(1)
-            if mat then ApplyMaterialToAllSlots(actor, mat) end
+            if mat then ApplyBunnyBody(actor, mat) end
             SetPieceVisible(actor, "C_bunnyears", true)
             SetPieceVisible(actor, "C_bunnycorset", true)
             SetPieceVisible(actor, "C_bunnyupper", true)
@@ -387,7 +413,7 @@ local skins = {
         apply = function(actor)
             HideAllClothing(actor)
             local mat = FindBunnyMaterial(2)
-            if mat then ApplyMaterialToAllSlots(actor, mat) end
+            if mat then ApplyBunnyBody(actor, mat) end
             SetPieceVisible(actor, "C_bunnyears", true)
             SetPieceVisible(actor, "C_bunnyskull", true)
             SetPieceVisible(actor, "C_bunnycorset", true)
@@ -462,6 +488,9 @@ function M.GetState()
         noclip = isNoclip,
         freecam = isFreecam,
         crouch = isCrouch,
+        spank = isSpankHold,
+        cowbell = isCowbell,
+        follow = isFollow,
         fly = math.floor(flyScale * 100 + 0.5),
         skin = currentSkinIdx,
         roku = lastLiveRokuNm,
@@ -480,6 +509,7 @@ function M.OnChange(fn)
     listeners[#listeners + 1] = fn
 end
 
+-- Cheats, HUD, apples, and the outfit buttons.
 function M.SetGod(on)
     RunOnGameThread(function()
         local player = GetPlayerPawn()
@@ -520,7 +550,20 @@ end
 
 function M.SetGhost(on)
     RunOnGameThread(function()
-        isGhostMode = not not on
+        on = not not on
+        if on and isFollow then
+            isFollow = false
+            local player = GetPlayerPawn()
+            local d = followSaved or { a = 5300, b = 1500, c = 4000, d = 1200 }
+            if player and player:IsValid() then
+                pcall(function() player.EasyDistanceCheckA = d.a end)
+                pcall(function() player.EasyDistanceCheckB = d.b end)
+                pcall(function() player.HardDistanceCheckA = d.c end)
+                pcall(function() player.HardDistanceCheckB = d.d end)
+            end
+            print("[RokuMenu] Follow OFF because Ghost was turned on.\n")
+        end
+        isGhostMode = on
         local roku = GetRoku()
         if roku then
             ApplyGhostState(roku, isGhostMode or isRokuFrozen)
@@ -672,16 +715,269 @@ function M.MaxDrunk()
     end)
 end
 
+-- Spank hold, cowbell, and the thrown-item montages.
+local function ApplySpankable(on)
+    local roku = GetRoku()
+    if not roku then return end
+    pcall(function() roku.bSpankable = on and true or false end)
+end
+
+function M.SetSpankable(on)
+    isSpankHold = not not on
+    RunOnGameThread(function()
+        ApplySpankable(isSpankHold)
+        print(string.format("[RokuMenu] Spankable %s\n", isSpankHold and "ON" or "OFF"))
+        notify()
+    end)
+end
+
+function M.RefreshSpankable()
+    if not isSpankHold then return end
+    RunOnGameThread(function()
+        ApplySpankable(true)
+    end)
+end
+
 function M.ForceSpank()
+    M.SetSpankable(not isSpankHold)
+end
+
+function M.SetCowbell(on)
+    isCowbell = not not on
     RunOnGameThread(function()
         local roku = GetRoku()
         if not roku then
-            print("[RokuMenu] Roku not found.\n")
+            print("[RokuMenu] Cowbell: Roku not found.\n")
             return
         end
-        pcall(function() roku.bSpankable = true end)
-        print("[RokuMenu] Spankable ON.\n")
+        if isCowbell then
+            pcall(function() roku:cb_event() end)
+            pcall(function() roku.bIsCowbellOn = true end)
+        else
+            pcall(function() roku:cb_off() end)
+            pcall(function() roku.bIsCowbellOn = false end)
+        end
+        print(string.format("[RokuMenu] Cowbell %s\n", isCowbell and "ON" or "OFF"))
+        notify()
     end)
+end
+
+function M.ReapplyCowbell(roku)
+    if not isCowbell or not roku then return end
+    pcall(function() roku:cb_event() end)
+    pcall(function() roku.bIsCowbellOn = true end)
+end
+
+local itemMontages = {}
+local itemHoldUntil = 0
+local itemHoldSpeed = nil
+local itemHoldMontage = nil
+local itemHoldStart = 0
+local itemHoldBump = nil
+local itemHoldVisionMuted = false
+local itemHoldPausedBrain = false
+local itemHoldReplayAt = 0
+local itemHoldRot = nil
+
+local function LoadItemMontage(name)
+    if itemMontages[name] and itemMontages[name]:IsValid() then
+        return itemMontages[name]
+    end
+    local path = "/Game/ROKUv3/Roku_Interaction/" .. name .. "." .. name
+    local full = "AnimMontage " .. path
+    local asset = nil
+    pcall(function() asset = StaticFindObject(full) end)
+    if not asset or not asset:IsValid() then
+        pcall(function() asset = StaticFindObject(path) end)
+    end
+    if not asset or not asset:IsValid() then
+        local ok, err = pcall(function() asset = LoadAsset(path) end)
+        if not ok then
+            print("[RokuMenu] LoadAsset error: " .. tostring(err) .. "\n")
+            asset = nil
+        end
+    end
+    if not asset or not asset:IsValid() then
+        print("[RokuMenu] Montage missing: " .. full .. "\n")
+        return nil
+    end
+    itemMontages[name] = asset
+    print("[RokuMenu] Montage found: " .. full .. "\n")
+    return asset
+end
+
+local function ShowRokuPart(roku, name)
+    local comp = roku[name]
+    if not comp or not comp:IsValid() then
+        print("[RokuMenu] Item part missing: " .. tostring(name) .. "\n")
+        return
+    end
+    pcall(function() comp:SetVisibility(true, true) end)
+    pcall(function() comp:SetHiddenInGame(false, true) end)
+end
+
+function M.PlayItem(which)
+    RunOnGameThread(function()
+        local roku = GetRoku()
+        if not roku then
+            print("[RokuMenu] Item: Roku not found.\n")
+            return
+        end
+        local items = {
+            apple = { mesh = "i_apple", call = "AppleVis", montage = "MHIT_apple_facefbx_Montage" },
+            carrot = { mesh = "I_CARROT", call = "carrotVIS", montage = "MHIT_carrot_face_Montage" },
+            wine = { mesh = "I_WINE", call = "WineVis", montage = "MHIT_wine_Montage" },
+            beer = { mesh = "I_beer", calls = { "ebeer", "BeerDrunk" }, montage = "mhit_beer_Montage" },
+            glowstick = { mesh = "I_GLOWSTICK", call = "GStickVis", light = "gs_light", montage = "MHIT_GSTICK_chest_Montage" },
+            flashlight = { mesh = "I_flashlight", call = "FLVis", light = "FlashlightLIGHT", montage = "MHIT_flashlight_chest_Montage" },
+        }
+        local item = items[which]
+        if not item then return end
+        ShowRokuPart(roku, item.mesh)
+        if item.light then
+            ShowRokuPart(roku, item.light)
+        end
+        if item.calls then
+            for i = 1, #item.calls do
+                local fname = item.calls[i]
+                pcall(function() roku[fname](roku) end)
+            end
+        elseif item.call then
+            pcall(function() roku[item.call](roku) end)
+        end
+        local montage = LoadItemMontage(item.montage)
+        local played = false
+        local why = "no montage"
+        if montage then
+            local mesh = GetMesh(roku)
+            local anim = nil
+            if mesh then pcall(function() anim = mesh:GetAnimInstance() end) end
+            local ok, err = nil, nil
+            local length = nil
+            if anim and anim:IsValid() then
+                pcall(function()
+                    local blendIn = montage.BlendIn
+                    blendIn.BlendTime = 0.0
+                    montage.BlendIn = blendIn
+                end)
+                -- Montage, rate, return type, start time, stop other montages.
+                ok, length = pcall(function() return anim:Montage_Play(montage, 1.0, 0, 0.0, true) end)
+                err = length
+            else
+                err = "no anim instance"
+            end
+            if ok then
+                played = true
+                local seconds = 4.5
+                if type(length) == "number" and length > 0.2 and length < 20 then
+                    seconds = length
+                end
+                M.HoldRokuForItem(roku, seconds, montage)
+            else
+                why = "Montage_Play: " .. tostring(err)
+                local section = nil
+                pcall(function() section = FName("None") end)
+                local ok2, err2 = pcall(function() roku:PlayAnimMontage(montage, 1.0, section) end)
+                if ok2 then
+                    played = true
+                else
+                    why = why .. " | PlayAnimMontage: " .. tostring(err2)
+                end
+            end
+        end
+        if played then
+            print("[RokuMenu] Item " .. which .. " montage played\n")
+        else
+            print("[RokuMenu] Item " .. which .. " montage failed. " .. why .. "\n")
+        end
+    end)
+end
+
+-- Follow uses a very short detection distance and the same calm state as ghost.
+-- Ghost and Follow turn each other off.
+local function ReadDistances(player)
+    local d = { a = 5300, b = 1500, c = 4000, d = 1200 }
+    pcall(function() if player.EasyDistanceCheckA > 100 then d.a = player.EasyDistanceCheckA end end)
+    pcall(function() if player.EasyDistanceCheckB > 50 then d.b = player.EasyDistanceCheckB end end)
+    pcall(function() if player.HardDistanceCheckA > 100 then d.c = player.HardDistanceCheckA end end)
+    pcall(function() if player.HardDistanceCheckB > 50 then d.d = player.HardDistanceCheckB end end)
+    return d
+end
+
+local function WriteDistances(player, d)
+    if not player or not d then return end
+    pcall(function() player.EasyDistanceCheckA = d.a end)
+    pcall(function() player.EasyDistanceCheckB = d.b end)
+    pcall(function() player.HardDistanceCheckA = d.c end)
+    pcall(function() player.HardDistanceCheckB = d.d end)
+end
+
+local function ApplyFollowCalm(roku, on)
+    if not roku or not roku:IsValid() then return end
+    if on then
+        QuietBlind(roku)
+        SetVolume(roku.AttackBox, false)
+        SetVolume(roku.crushbox, false)
+        SetVolume(roku.VisionBox, false)
+        SetVolume(roku.HearingSphere, false)
+    else
+        pcall(function() roku.HasAttacked = false end)
+        pcall(function() roku.bCanBump = true end)
+        pcall(function() roku.bSensesEnabled = true end)
+        if not isGhostMode and not isRokuFrozen then
+            SetVolume(roku.AttackBox, true)
+            SetVolume(roku.crushbox, true)
+            SetVolume(roku.VisionBox, true)
+            SetVolume(roku.HearingSphere, true)
+        end
+    end
+end
+
+local function DropChaseOnceForFollow(roku)
+    if not roku or not roku:IsValid() then return end
+    pcall(function() roku:OnLostPlayer() end)
+    local ctrl = roku.Controller
+    if ctrl and ctrl:IsValid() then
+        pcall(function() ctrl:CancelChase() end)
+    end
+end
+
+function M.SetFollow(on)
+    isFollow = not not on
+    RunOnGameThread(function()
+        local player = GetPlayerPawn()
+        local roku = GetRoku()
+        if not player then
+            print("[RokuMenu] Follow: player not found.\n")
+            return
+        end
+        if isFollow then
+            if isGhostMode then
+                isGhostMode = false
+                print("[RokuMenu] Ghost OFF because Follow was turned on.\n")
+            end
+            if followSaved == nil then
+                followSaved = ReadDistances(player)
+            end
+            WriteDistances(player, { a = 53, b = 53, c = 53, d = 53 })
+            DropChaseOnceForFollow(roku)
+            ApplyFollowCalm(roku, true)
+            print("[RokuMenu] Follow ON. Distance 53, senses and attack volumes off.\n")
+        else
+            WriteDistances(player, followSaved or { a = 5300, b = 1500, c = 4000, d = 1200 })
+            ApplyFollowCalm(roku, false)
+            print("[RokuMenu] Follow OFF. Distance and volumes restored.\n")
+        end
+        notify()
+    end)
+end
+
+function M.ReapplyFollow()
+    if not isFollow then return end
+    local player = GetPlayerPawn()
+    local roku = GetRoku()
+    WriteDistances(player, { a = 53, b = 53, c = 53, d = 53 })
+    ApplyFollowCalm(roku, true)
 end
 
 function M.ToggleGod() M.SetGod(not isGodMode) end
@@ -699,6 +995,7 @@ local userSettings = {
     music = 1.0,
     sfx = 1.0,
 }
+-- Mouse, music, and effects. A blank number is ignored and not written to the game.
 local function GetSettingsObject()
     local list = FindAllOf("SG_settings_C") or {}
     for i = 1, #list do
@@ -792,6 +1089,8 @@ function M.GetUserSettings()
     }
 end
 
+-- Noclip and freecam share the fly keys.
+-- Noclip teleports the body and keeps physics off. Exit stays in noclip while inside a wall.
 local function Vec(x, y, z)
     return { X = x, Y = y, Z = z }
 end
@@ -870,9 +1169,34 @@ local function PlayerBaseSpeed(player)
     return speed
 end
 
-local moveHit = {}
+-- TeleportTo does not write a hit result. SetActorLocation does, and that spams the console.
+local function SetActorPos(actor, x, y, z)
+    if math.abs(x) > 1000000 or math.abs(y) > 1000000 or math.abs(z) > 1000000 then return end
+    local rot = nil
+    pcall(function() rot = actor:K2_GetActorRotation() end)
+    if not rot then rot = { Pitch = 0, Yaw = 0, Roll = 0 } end
+    pcall(function() actor:K2_TeleportTo(Vec(x, y, z), rot) end)
+end
+
+local function KillNoclipPhysics(player)
+    pcall(function()
+        local cap = player.CapsuleComponent
+        if cap and cap:IsValid() then cap:SetCollisionEnabled(0) end
+    end)
+    pcall(function() player:SetActorEnableCollision(false) end)
+    pcall(function()
+        local cm = player.CharacterMovement
+        if cm and cm:IsValid() then
+            cm.Velocity = Vec(0, 0, 0)
+            cm.GravityScale = 0
+            cm:SetMovementMode(0)
+            cm:SetComponentTickEnabled(false)
+        end
+    end)
+end
 
 local function MoveActor(actor, dx, dy, dz)
+    if dx == 0 and dy == 0 and dz == 0 then return end
     local loc = nil
     pcall(function() loc = actor:K2_GetActorLocation() end)
     local x, y, z = ReadVec(loc)
@@ -880,26 +1204,25 @@ local function MoveActor(actor, dx, dy, dz)
     if math.abs(dx) > 200 then dx = dx > 0 and 200 or -200 end
     if math.abs(dy) > 200 then dy = dy > 0 and 200 or -200 end
     if math.abs(dz) > 200 then dz = dz > 0 and 200 or -200 end
-    local nx, ny, nz = x + dx, y + dy, z + dz
-    if math.abs(nx) > 1000000 or math.abs(ny) > 1000000 or math.abs(nz) > 1000000 then return end
-    pcall(function()
-        actor:K2_SetActorLocation(Vec(nx, ny, nz), false, moveHit, true)
-    end)
+    SetActorPos(actor, x + dx, y + dy, z + dz)
 end
 
 local function MoveCamera(cam, dx, dy, dz, rot)
-    local loc = nil
-    pcall(function() loc = cam:K2_GetComponentLocation() end)
-    local x, y, z = ReadVec(loc)
-    if not x then return end
-    if math.abs(dx) > 200 then dx = dx > 0 and 200 or -200 end
-    if math.abs(dy) > 200 then dy = dy > 0 and 200 or -200 end
-    if math.abs(dz) > 200 then dz = dz > 0 and 200 or -200 end
-    pcall(function()
-        cam:K2_SetWorldLocation(Vec(x + dx, y + dy, z + dz), false, moveHit, true)
-    end)
+    if dx ~= 0 or dy ~= 0 or dz ~= 0 then
+        local loc = nil
+        pcall(function() loc = cam:K2_GetComponentLocation() end)
+        local x, y, z = ReadVec(loc)
+        if x then
+            if math.abs(dx) > 200 then dx = dx > 0 and 200 or -200 end
+            if math.abs(dy) > 200 then dy = dy > 0 and 200 or -200 end
+            if math.abs(dz) > 200 then dz = dz > 0 and 200 or -200 end
+            pcall(function()
+                cam.RelativeLocation = Vec(x + dx, y + dy, z + dz)
+            end)
+        end
+    end
     if rot then
-        pcall(function() cam:K2_SetWorldRotation(rot, false, moveHit, false) end)
+        pcall(function() cam.RelativeRotation = rot end)
     end
 end
 
@@ -936,112 +1259,244 @@ local function StopFreecam(player)
     savedCamRot = nil
 end
 
-local function OverlapCount(comp)
-    local n = 999
-    local ok = pcall(function()
-        local arr = comp:GetOverlappingComponents()
-        if arr == nil then
-            n = 0
-        elseif arr.GetArrayNum then
-            n = arr:GetArrayNum()
-        else
-            n = #arr
-        end
-    end)
-    if not ok then return 999 end
-    return n or 0
+local function GetKismet()
+    local ueh = nil
+    pcall(function() ueh = require("UEHelpers.UEHelpers") end)
+    if not ueh or not ueh.GetKismetSystemLibrary then
+        pcall(function() ueh = require("UEHelpers") end)
+    end
+    if not ueh or not ueh.GetKismetSystemLibrary then return nil end
+    local lib = nil
+    local ok = pcall(function() lib = ueh.GetKismetSystemLibrary() end)
+    if ok and lib and lib.IsValid and lib:IsValid() then return lib end
+    return nil
 end
 
--- Query-only first. Physics collision while inside the floor is the crash.
--- If the overlap test cannot prove the spot is empty, go back to where noclip started.
+local traceColor = { R = 0, G = 0, B = 0, A = 0 }
+
+-- true = geometry occupies the capsule, false = empty, nil = the trace did not run.
+local function CapsuleBlocked(kismet, player, x, y, z, radius, half)
+    local hit = {}
+    local ok, wasHit = pcall(function()
+        return kismet:CapsuleTraceSingle(
+            player,
+            Vec(x, y, z),
+            Vec(x, y, z + 2),
+            radius,
+            half,
+            0,
+            false,
+            { player },
+            0,
+            hit,
+            true,
+            traceColor,
+            traceColor,
+            0
+        )
+    end)
+    if not ok then return nil end
+    return wasHit == true
+end
+
+-- Centimetres of open air above this spot before a ceiling. 0 means the trace started inside geometry.
+local function UpClearance(kismet, player, x, y, z)
+    local hit = {}
+    local ok, wasHit = pcall(function()
+        return kismet:LineTraceSingle(
+            player,
+            Vec(x, y, z),
+            Vec(x, y, z + 800),
+            0,
+            false,
+            { player },
+            0,
+            hit,
+            true,
+            traceColor,
+            traceColor,
+            0
+        )
+    end)
+    if not ok then return nil end
+    if wasHit ~= true then return 800 end
+    local pen = false
+    pcall(function()
+        pen = hit.bStartPenetrating == true or hit.StartPenetrating == true
+    end)
+    if pen then return 0 end
+    local dist = nil
+    pcall(function() dist = hit.Distance end)
+    if type(dist) ~= "number" then
+        pcall(function() dist = hit.distance end)
+    end
+    if type(dist) ~= "number" then return 0 end
+    return dist
+end
+
+-- true only when a floor is within 2m under the capsule. Sky and a blind trace are not clear.
+local function FloorUnder(kismet, player, x, y, z)
+    local hit = {}
+    local ok, wasHit = pcall(function()
+        return kismet:LineTraceSingle(
+            player,
+            Vec(x, y, z),
+            Vec(x, y, z - 200),
+            0,
+            false,
+            { player },
+            0,
+            hit,
+            true,
+            traceColor,
+            traceColor,
+            0
+        )
+    end)
+    if not ok then return nil end
+    return wasHit == true
+end
+
+-- Collision stays off during the search. The player is moved only after a spot
+-- is empty and has a floor within 2m, and never more than 4m above the exit spot.
 local function StopNoclip(player)
-    if not player or not player:IsValid() then return end
+    if not player or not player:IsValid() then return false end
     local loc = nil
     pcall(function() loc = player:K2_GetActorLocation() end)
     local x, y, z = ReadVec(loc)
+    if not x then
+        print("[RokuMenu] Noclip stayed on. Position could not be read.\n")
+        return false
+    end
     local half = 90
+    local radius = 34
     local cap = nil
     pcall(function() cap = player.CapsuleComponent end)
     if cap and cap:IsValid() then
-        pcall(function() half = cap:GetUnscaledCapsuleHalfHeight() end)
-        pcall(function() cap:SetCollisionEnabled(1) end)
+        pcall(function()
+            local h = cap:GetUnscaledCapsuleHalfHeight()
+            if type(h) == "number" and h >= 10 and h <= 200 then half = h end
+        end)
+        pcall(function()
+            local r = cap:GetUnscaledCapsuleRadius()
+            if type(r) == "number" and r >= 5 and r <= 80 then radius = r end
+        end)
+    end
+    local kismet = GetKismet()
+    if not kismet then
+        print("[RokuMenu] Noclip stayed on. Exit trace unavailable.\n")
+        return false
+    end
+    local testHalf = half * 0.85
+    local testRadius = radius * 0.85
+    local clearance = UpClearance(kismet, player, x, y, z)
+    if clearance == nil then
+        print("[RokuMenu] Noclip stayed on. Exit trace failed.\n")
+        return false
+    end
+    local found = nil
+    for rise = 0, 400, 50 do
+        if rise > 0 and (clearance >= 800 or rise + testHalf >= clearance - 5) then break end
+        local blocked = CapsuleBlocked(kismet, player, x, y, z + rise, testRadius, testHalf)
+        local floor = FloorUnder(kismet, player, x, y, z + rise)
+        if blocked == nil or floor == nil then
+            print("[RokuMenu] Noclip stayed on. Exit trace failed.\n")
+            return false
+        end
+        if blocked == false and floor == true then
+            found = rise
+            break
+        end
+    end
+    if not found then
+        print("[RokuMenu] Noclip stayed on. Still inside geometry. Position unchanged.\n")
+        return false
+    end
+    if found > 0 then
+        SetActorPos(player, x, y, z + found)
+    end
+    if cap and cap:IsValid() then
+        pcall(function() cap:SetCollisionEnabled(3) end)
     end
     pcall(function() player:SetActorEnableCollision(true) end)
-    local function overlaps()
-        if not cap or not cap:IsValid() then return 999 end
-        return OverlapCount(cap)
-    end
-    local function put(px, py, pz)
-        pcall(function()
-            player:K2_SetActorLocation(Vec(px, py, pz), false, moveHit, true)
-        end)
-    end
-    local clear = false
-    if x and overlaps() == 0 then
-        clear = true
-    elseif x then
-        for i = 1, 40 do
-            put(x, y, z + (i * half))
-            if overlaps() == 0 then
-                clear = true
-                break
-            end
+    pcall(function()
+        local cm = player.CharacterMovement
+        if cm and cm:IsValid() then
+            cm.Velocity = Vec(0, 0, 0)
+            cm:SetComponentTickEnabled(true)
+            cm.GravityScale = 1
+            cm:SetMovementMode(1)
         end
-    end
-    if not clear and noclipSafeLoc then
-        put(noclipSafeLoc.X, noclipSafeLoc.Y, noclipSafeLoc.Z)
-        clear = overlaps() == 0 or overlaps() == 999
-        print("[RokuMenu] Noclip exit: no open space above, returned to start\n")
-    elseif clear then
-        print("[RokuMenu] Noclip exit: found open space\n")
-    else
-        print("[RokuMenu] Noclip exit: could not prove open space\n")
-    end
-    if clear then
-        if cap and cap:IsValid() then
-            pcall(function() cap:SetCollisionEnabled(3) end)
-        end
-        pcall(function()
-            local cm = player.CharacterMovement
-            if cm and cm:IsValid() then
-                cm:SetComponentTickEnabled(true)
-                cm.GravityScale = 1
-                cm:SetMovementMode(1)
-            end
-        end)
-        noclipSafeLoc = nil
-    else
-        if cap and cap:IsValid() then
-            pcall(function() cap:SetCollisionEnabled(0) end)
-        end
-        pcall(function() player:SetActorEnableCollision(false) end)
-        isNoclip = true
-        print("[RokuMenu] Noclip stayed on to avoid a collision crash\n")
-    end
+    end)
+    print(string.format("[RokuMenu] Noclip exit: clear after %dcm\n", found))
+    return true
 end
 
 function M.SetNoclip(on)
-    -- Noclip disabled for now. Movement through geometry was crashing the game.
-    -- Lua cannot have code after return, so the old body lives in StopNoclip until it is wired back.
-    print("[RokuMenu] Noclip is disabled for now.\n")
-    isNoclip = false
-    notify()
+    on = not not on
+    RunOnGameThread(function()
+        local player = GetPlayerPawn()
+        if on and isFreecam then
+            isFreecam = false
+            if player then StopFreecam(player) end
+        end
+        if not on then
+            isNoclip = false
+            if not player or not StopNoclip(player) then
+                isNoclip = true
+                notify()
+                return
+            end
+            print("[RokuMenu] Noclip OFF\n")
+            notify()
+            return
+        end
+        if not player then
+            print("[RokuMenu] Noclip: player not found\n")
+            isNoclip = false
+            notify()
+            return
+        end
+        pcall(function()
+            local cap = player.CapsuleComponent
+            if cap and cap:IsValid() then
+                cap:SetCollisionEnabled(0)
+            end
+        end)
+        pcall(function() player:SetActorEnableCollision(false) end)
+        pcall(function()
+            local cm = player.CharacterMovement
+            if cm and cm:IsValid() then
+                cm.GravityScale = 0
+                cm:SetMovementMode(0)
+                cm:SetComponentTickEnabled(false)
+            end
+        end)
+        isNoclip = true
+        print("[RokuMenu] Noclip ON. WASD, Space up, X down.\n")
+        notify()
+    end)
 end
 
 function M.SetFreecam(on)
     on = not not on
-    if on and isNoclip then
-        local player = GetPlayerPawn()
-        isNoclip = false
-        if player then StopNoclip(player) end
-    end
-    isFreecam = on
     RunOnGameThread(function()
         local player = GetPlayerPawn()
         if not player then
             print("[RokuMenu] Freecam: player not found\n")
             return
         end
+        if on and isNoclip then
+            if not StopNoclip(player) then
+                print("[RokuMenu] Freecam blocked. Noclip exit spot was not clear.\n")
+                isFreecam = false
+                isNoclip = true
+                notify()
+                return
+            end
+            isNoclip = false
+        end
+        isFreecam = on
         local cam = player.FirstPersonCamera
         if isFreecam then
             if not cam or not cam:IsValid() then
@@ -1070,6 +1525,36 @@ function M.SetFreecam(on)
     end)
 end
 
+-- One hop, 20% over the game's jump speed. Shift sprint pins her to the ground, so jump is skipped then.
+function M.TryJump()
+    if isNoclip or isFreecam then return end
+    local player = GetPlayerPawn()
+    if not player or not player:IsValid() then return end
+    local cm = nil
+    pcall(function() cm = player.CharacterMovement end)
+    if not cm or not cm:IsValid() then return end
+    local sprinting = false
+    pcall(function() sprinting = player["Wants to Sprint"] == true end)
+    if sprinting then return end
+    local mode = nil
+    pcall(function() mode = cm.MovementMode end)
+    if mode == 3 then return end
+    local grounded = nil
+    local okGround = pcall(function() grounded = cm:IsMovingOnGround() end)
+    if okGround and grounded == false and mode ~= 1 then return end
+    local z = 420
+    pcall(function()
+        local j = cm.JumpZVelocity
+        if type(j) == "number" and j > 100 then z = j end
+    end)
+    z = z * 1.2
+    local ok = pcall(function() player:LaunchCharacter(Vec(0, 0, z), false, true) end)
+    if not ok then
+        pcall(function() player:Jump() end)
+    end
+    print("[RokuMenu] Jump\n")
+end
+
 function M.FlyTick()
     if not isNoclip and not isFreecam then return end
     local player = GetPlayerPawn()
@@ -1096,10 +1581,11 @@ function M.FlyTick()
             MoveCamera(cam, dx, dy, dz, rot)
         end
         if savedPawnLoc then
-            pcall(function() player:K2_SetActorLocation(savedPawnLoc, false, {}, false) end)
+            SetActorPos(player, savedPawnLoc.X, savedPawnLoc.Y, savedPawnLoc.Z)
         end
     else
         MoveActor(player, dx, dy, dz)
+        KillNoclipPhysics(player)
     end
 end
 
@@ -1113,11 +1599,8 @@ local function SetVisionBox(roku, scale)
 end
 
 local function RestoreSight(player, roku)
-    if player and player:IsValid() then
-        pcall(function() player.EasyDistanceCheckA = 5300 end)
-        pcall(function() player.EasyDistanceCheckB = 1500 end)
-        pcall(function() player.HardDistanceCheckA = 4000 end)
-        pcall(function() player.HardDistanceCheckB = 1200 end)
+    if player and player:IsValid() and not isFollow then
+        WriteDistances(player, followSaved or { a = 5300, b = 1500, c = 4000, d = 1200 })
     end
     if roku and roku:IsValid() then
         SetVisionBox(roku, 1)
@@ -1283,12 +1766,284 @@ end
 
 function M.ToggleNoclip() M.SetNoclip(not isNoclip) end
 function M.ToggleFreecam() M.SetFreecam(not isFreecam) end
-function M.ToggleCrouch() M.SetCrouch(not isCrouch) end
 
+-- Item montage. Her brain, path, and sight stay paused so a chase or look-around does not replace the clip.
+local function ItemBrain(roku)
+    if not roku or not roku:IsValid() then return nil end
+    local ctrl = roku.Controller
+    if not ctrl or not ctrl:IsValid() then return nil end
+    local brain = nil
+    pcall(function() brain = ctrl.BrainComponent end)
+    if brain and brain:IsValid() then return brain end
+    return nil
+end
+
+local function PauseItemBrain(roku)
+    if itemHoldPausedBrain then return end
+    local brain = ItemBrain(roku)
+    if not brain then return end
+    local ok = pcall(function() brain:PauseLogic("RokuMenuItem") end)
+    if ok then itemHoldPausedBrain = true end
+end
+
+local function ResumeItemBrain(roku)
+    if not itemHoldPausedBrain then return end
+    itemHoldPausedBrain = false
+    local brain = ItemBrain(roku)
+    if not brain then return end
+    pcall(function() brain:ResumeLogic("RokuMenuItem") end)
+end
+
+local function QuietItemSight(roku)
+    local chasing = false
+    pcall(function() chasing = roku.bIsChasing == true end)
+    pcall(function()
+        roku.bPlayerInVisionBox = false
+        roku.bIsChasing = false
+        roku.bIsInvestigating = false
+    end)
+    if chasing then
+        local ctrl = roku.Controller
+        if ctrl and ctrl:IsValid() then
+            pcall(function() ctrl:CancelChase() end)
+        end
+    end
+end
+
+local function StopItemPath(roku)
+    local ctrl = roku.Controller
+    if ctrl and ctrl:IsValid() then
+        pcall(function() ctrl:StopMovement() end)
+    end
+    pcall(function()
+        local cm = roku.CharacterMovement
+        if cm and cm:IsValid() then
+            cm:StopMovementImmediately()
+        end
+    end)
+end
+
+local function ReadHoldBool(obj, name)
+    local v = nil
+    local ok = pcall(function() v = obj[name] end)
+    if ok and type(v) == "boolean" then return v end
+    return nil
+end
+
+local function CaptureItemRotation(roku)
+    if itemHoldRot or not roku or not roku:IsValid() then return end
+    local saved = {}
+    saved.yaw = ReadHoldBool(roku, "bUseControllerRotationYaw")
+    saved.pitch = ReadHoldBool(roku, "bUseControllerRotationPitch")
+    saved.roll = ReadHoldBool(roku, "bUseControllerRotationRoll")
+    local cm = nil
+    pcall(function() cm = roku.CharacterMovement end)
+    if cm and cm:IsValid() then
+        saved.orient = ReadHoldBool(cm, "bOrientRotationToMovement")
+        saved.desired = ReadHoldBool(cm, "bUseControllerDesiredRotation")
+        saved.physics = ReadHoldBool(cm, "bAllowPhysicsRotationDuringAnimRootMotion")
+        pcall(function() saved.rate = CopyRot(cm.RotationRate) end)
+    end
+    itemHoldRot = saved
+end
+
+local function ApplyItemRotationLock(roku)
+    pcall(function()
+        roku.bUseControllerRotationYaw = false
+        roku.bUseControllerRotationPitch = false
+        roku.bUseControllerRotationRoll = false
+    end)
+    pcall(function()
+        local cm = roku.CharacterMovement
+        if cm and cm:IsValid() then
+            cm.bOrientRotationToMovement = false
+            cm.bUseControllerDesiredRotation = false
+            cm.bAllowPhysicsRotationDuringAnimRootMotion = false
+            if itemHoldRot and itemHoldRot.rate then
+                cm.RotationRate = { Pitch = 0, Yaw = 0, Roll = 0 }
+            end
+        end
+    end)
+    local ctrl = roku.Controller
+    if ctrl and ctrl:IsValid() then
+        pcall(function() ctrl:K2_ClearFocus() end)
+    end
+    pcall(function()
+        local tl = roku.playerturnanim
+        if tl and tl:IsValid() and tl:IsPlaying() then tl:Stop() end
+    end)
+end
+
+local function RestoreItemRotation(roku)
+    local saved = itemHoldRot
+    itemHoldRot = nil
+    if not saved or not roku or not roku:IsValid() then return end
+    pcall(function()
+        if type(saved.yaw) == "boolean" then roku.bUseControllerRotationYaw = saved.yaw end
+        if type(saved.pitch) == "boolean" then roku.bUseControllerRotationPitch = saved.pitch end
+        if type(saved.roll) == "boolean" then roku.bUseControllerRotationRoll = saved.roll end
+    end)
+    pcall(function()
+        local cm = roku.CharacterMovement
+        if not cm or not cm:IsValid() then return end
+        if type(saved.orient) == "boolean" then cm.bOrientRotationToMovement = saved.orient end
+        if type(saved.desired) == "boolean" then cm.bUseControllerDesiredRotation = saved.desired end
+        if type(saved.physics) == "boolean" then cm.bAllowPhysicsRotationDuringAnimRootMotion = saved.physics end
+        if saved.rate then cm.RotationRate = saved.rate end
+    end)
+end
+
+function M.HoldRokuForItem(roku, seconds, montage)
+    itemHoldUntil = os.clock() + seconds
+    itemHoldStart = os.clock()
+    itemHoldMontage = montage
+    itemHoldReplayAt = 0
+    if itemHoldBump == nil then
+        itemHoldBump = true
+        pcall(function()
+            if roku.bCanBump == false then itemHoldBump = false end
+        end)
+    end
+    pcall(function() roku.bCanBump = false end)
+    QuietItemSight(roku)
+    if not itemHoldVisionMuted and not isGhostMode and not isFollow and not isRokuFrozen then
+        SetVolume(roku.VisionBox, false)
+        itemHoldVisionMuted = true
+    end
+    PauseItemBrain(roku)
+    StopItemPath(roku)
+    CaptureItemRotation(roku)
+    ApplyItemRotationLock(roku)
+    print(string.format("[RokuMenu] Item hold %.1fs. Movement and sight paused.\n", seconds))
+end
+
+local function IsIdleMontage(name)
+    local n = string.lower(name or "")
+    return string.find(n, "lookaround", 1, true)
+        or string.find(n, "generic_bump", 1, true)
+        or string.find(n, "investigate", 1, true)
+end
+
+local function IsInterruptMontage(name)
+    if IsIdleMontage(name) then return true end
+    local n = string.lower(name or "")
+    return string.find(n, "notice", 1, true)
+        or string.find(n, "aggro", 1, true)
+        or string.find(n, "attack", 1, true)
+end
+
+function M.MaintainItemHold()
+    if itemHoldUntil == 0 then return end
+    local roku = GetRoku()
+    if os.clock() < itemHoldUntil then
+        if not roku or not roku:IsValid() then return end
+        pcall(function() roku.bCanBump = false end)
+        QuietItemSight(roku)
+        StopItemPath(roku)
+        ApplyItemRotationLock(roku)
+        local mesh = GetMesh(roku)
+        local anim = nil
+        if mesh then pcall(function() anim = mesh:GetAnimInstance() end) end
+        if not anim or not anim:IsValid() then return end
+        local current = nil
+        pcall(function() current = anim:GetCurrentActiveMontage() end)
+        if not current or not current:IsValid() then return end
+        local name = ""
+        pcall(function() name = current:GetFullName() end)
+        if not IsInterruptMontage(name) then return end
+        pcall(function() anim:Montage_Stop(0.0, current) end)
+        local now = os.clock()
+        if itemHoldMontage and itemHoldMontage:IsValid() and now - itemHoldReplayAt >= 0.45 then
+            itemHoldReplayAt = now
+            local elapsed = now - itemHoldStart
+            if elapsed < 0 then elapsed = 0 end
+            pcall(function()
+                anim:Montage_Play(itemHoldMontage, 1.0, 0, elapsed, true)
+            end)
+        end
+        return
+    end
+    local restoreBump = itemHoldBump
+    local muted = itemHoldVisionMuted
+    itemHoldBump = nil
+    itemHoldVisionMuted = false
+    itemHoldUntil = 0
+    itemHoldMontage = nil
+    itemHoldSpeed = nil
+    itemHoldReplayAt = 0
+    if roku and roku:IsValid() then
+        if isGhostMode or isFollow or isRokuFrozen then
+            pcall(function() roku.bCanBump = false end)
+        elseif restoreBump ~= nil then
+            pcall(function() roku.bCanBump = restoreBump end)
+        end
+        if muted and not isGhostMode and not isFollow and not isRokuFrozen then
+            SetVolume(roku.VisionBox, true)
+        end
+        RestoreItemRotation(roku)
+    end
+    if itemHoldRot then itemHoldRot = nil end
+    ResumeItemBrain(roku)
+    print("[RokuMenu] Item hold released\n")
+end
+
+function M.ToggleCrouch() M.SetCrouch(not isCrouch) end
+function M.ToggleCowbell() M.SetCowbell(not isCowbell) end
+function M.ToggleFollow() M.SetFollow(not isFollow) end
+
+-- Cheats clear when the level Roku unloads. Saved mouse and volume settings stay.
+local function ResetCheats()
+    local player = GetPlayerPawn()
+    local roku = GetRoku()
+    if isCrouch and player then
+        isCrouch = false
+        ApplyCrouchSpeed(player, false)
+    end
+    if isFollow and player then
+        isFollow = false
+        WriteDistances(player, followSaved or { a = 5300, b = 1500, c = 4000, d = 1200 })
+    end
+    if isFreecam and player then
+        StopFreecam(player)
+    end
+    if isUiHidden then
+        isUiHidden = false
+        M.SetUIHidden(false)
+    end
+    isGodMode = false
+    isInfStamina = false
+    isGhostMode = false
+    isRokuFrozen = false
+    isRokuSlow = false
+    isSpankHold = false
+    isCowbell = false
+    isFollow = false
+    isCrouch = false
+    isFreecam = false
+    isNoclip = false
+    currentSkinIdx = 1
+    itemHoldUntil = 0
+    itemHoldBump = nil
+    itemHoldVisionMuted = false
+    itemHoldPausedBrain = false
+    itemHoldMontage = nil
+    itemHoldReplayAt = 0
+    itemHoldRot = nil
+    if roku and roku:IsValid() then
+        pcall(function() roku.bSpankable = false end)
+        pcall(function() roku.bIsCowbellOn = false end)
+        pcall(function() roku:cb_off() end)
+        pcall(function() roku.CustomTimeDilation = 1.0 end)
+    end
+    print("[RokuMenu] Level Roku unloaded. Cheats reset.\n")
+    notify()
+end
+
+-- 200ms keeps cheats applied. 16ms runs only while flying or an item clip is playing.
 function M.StartLoops()
     InstallAttackHook()
     local function EnforceToggles()
-        if isGodMode or isInfStamina or isGhostMode or isRokuFrozen or isCrouch then
+        if isGodMode or isInfStamina or isGhostMode or isRokuFrozen or isCrouch or isFollow then
             do
                 local player = GetPlayerPawn()
                 if player and player:IsValid() then
@@ -1324,6 +2079,9 @@ function M.StartLoops()
         if isCrouch then
             M.MaintainCrouch()
         end
+        if isFollow then
+            M.ReapplyFollow()
+        end
     end
     M._enforceToggles = EnforceToggles
     M._flyTick = M.FlyTick
@@ -1332,47 +2090,80 @@ function M.StartLoops()
         return false
     end)
     local function FlyLoop()
-        local ok, err = pcall(M.FlyTick)
-        if not ok then
-            isNoclip = false
-            isFreecam = false
-            print("[RokuMenu] Fly stopped: " .. tostring(err) .. "\n")
+        local holding = itemHoldUntil ~= 0
+        if not isNoclip and not isFreecam and not holding then
+            return false
+        end
+        if holding then
+            M.MaintainItemHold()
+        end
+        if isNoclip or isFreecam then
+            local ok, err = pcall(M.FlyTick)
+            if not ok then
+                isNoclip = false
+                isFreecam = false
+                print("[RokuMenu] Fly stopped: " .. tostring(err) .. "\n")
+            end
         end
         return false
     end
     M._flyLoop = FlyLoop
-    M._moveHit = moveHit
     LoopAsync(16, FlyLoop)
+
+    LoopAsync(5000, function()
+        M.RefreshSpankable()
+        return false
+    end)
 
     LoopAsync(1000, function()
         local roku = GetRoku()
         if roku and roku:IsValid() then
             local currentName = SafeGetObjectName(roku)
-            if currentName ~= lastLiveRokuNm then
-                lastLiveRokuNm = currentName
-                print(string.format("\n[RokuMenu] Locked onto live Roku: %s\n", currentName))
-                if string.find(currentName, "MainMenu", 1, true) then
+            local isMenu = string.find(currentName, "MainMenu", 1, true) ~= nil
+            if isMenu then
+                if hadLevelRoku then
+                    hadLevelRoku = false
+                    ResetCheats()
+                end
+                if currentName ~= lastLiveRokuNm then
+                    lastLiveRokuNm = currentName
+                    print(string.format("\n[RokuMenu] Menu Roku: %s\n", currentName))
                     RunOnGameThread(function()
                         M.ApplyUserSettings()
                         print("[RokuMenu] Applied saved settings (main menu)\n")
                     end)
                 end
-                RunOnGameThread(function()
-                    if skins[currentSkinIdx] then
-                        skins[currentSkinIdx].apply(roku)
-                    end
-                    if isGhostMode or isRokuFrozen then
-                        ApplyGhostState(roku, true)
-                    end
-                    if isRokuFrozen then
-                        pcall(function() roku.CustomTimeDilation = 0.0 end)
-                    elseif isRokuSlow then
-                        pcall(function() roku.CustomTimeDilation = 0.05 end)
-                    end
-                end)
-                notify()
+            else
+                hadLevelRoku = true
+                if currentName ~= lastLiveRokuNm then
+                    lastLiveRokuNm = currentName
+                    print(string.format("\n[RokuMenu] Locked onto live Roku: %s\n", currentName))
+                    RunOnGameThread(function()
+                        if skins[currentSkinIdx] then
+                            skins[currentSkinIdx].apply(roku)
+                        end
+                        if isGhostMode or isRokuFrozen then
+                            ApplyGhostState(roku, true)
+                        end
+                        M.ReapplyCowbell(roku)
+                        M.ReapplyFollow()
+                        if isSpankHold then
+                            ApplySpankable(true)
+                        end
+                        if isRokuFrozen then
+                            pcall(function() roku.CustomTimeDilation = 0.0 end)
+                        elseif isRokuSlow then
+                            pcall(function() roku.CustomTimeDilation = 0.05 end)
+                        end
+                    end)
+                    notify()
+                end
             end
         else
+            if hadLevelRoku then
+                hadLevelRoku = false
+                ResetCheats()
+            end
             lastLiveRokuNm = ""
         end
         return false

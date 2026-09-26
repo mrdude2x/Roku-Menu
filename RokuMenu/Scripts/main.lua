@@ -11,8 +11,8 @@ else
     ModMenu.Init({
         title = "RokuMenu",
         instanceId = "RokuMenu",
-        key = Key.HOME,
-        keyHint = "Home",
+        key = Key.TAB,
+        keyHint = "Tab",
         dock = "left",
         ignoreLook = true,
         cursorMode = "modmenu",
@@ -79,6 +79,9 @@ else
         pcall(function() ModMenu.Set("Roku", "ghost", state.ghost) end)
         pcall(function() ModMenu.Set("Roku", "frozen", state.frozen) end)
         pcall(function() ModMenu.Set("Roku", "slow", state.slow) end)
+        pcall(function() ModMenu.Set("Roku", "spank", state.spank) end)
+        pcall(function() ModMenu.Set("Roku", "cowbell", state.cowbell) end)
+        pcall(function() ModMenu.Set("Roku", "follow", state.follow) end)
         pcall(function() ModMenu.Set("Looks", "skin", state.skin) end)
         local lock = "Roku: not in this map"
         if state.roku and state.roku ~= "" and state.roku ~= "None" then
@@ -177,10 +180,43 @@ else
                 onClick = function() Core.MaxDrunk() end,
             },
             {
-                type = "button",
+                type = "checkbox",
                 id = "spank",
-                label = "Force Spankable",
-                onClick = function() Core.ForceSpank() end,
+                label = "Spankable (holds, refreshes every 5s)",
+                default = false,
+                onChange = function(on) Core.SetSpankable(on) end,
+            },
+            {
+                type = "checkbox",
+                id = "cowbell",
+                label = "Cowbell",
+                default = false,
+                onChange = function(on) Core.SetCowbell(on) end,
+            },
+            {
+                type = "checkbox",
+                id = "follow",
+                label = "Follow (no attack)",
+                default = false,
+                onChange = function(on) Core.SetFollow(on) end,
+            },
+            { type = "separator" },
+            { type = "label", id = "items", label = "Item events" },
+            {
+                type = "row",
+                items = {
+                    { type = "button", id = "apple", label = "Apple", onClick = function() Core.PlayItem("apple") end },
+                    { type = "button", id = "carrot", label = "Carrot", onClick = function() Core.PlayItem("carrot") end },
+                    { type = "button", id = "wine", label = "Wine", onClick = function() Core.PlayItem("wine") end },
+                },
+            },
+            {
+                type = "row",
+                items = {
+                    { type = "button", id = "beer", label = "Beer", onClick = function() Core.PlayItem("beer") end },
+                    { type = "button", id = "glow", label = "Glowstick", onClick = function() Core.PlayItem("glowstick") end },
+                    { type = "button", id = "flash", label = "Flashlight", onClick = function() Core.PlayItem("flashlight") end },
+                },
             },
         },
     })
@@ -204,14 +240,13 @@ else
                 default = false,
                 onChange = function(on) Core.SetFreecam(on) end,
             },
-            -- Noclip checkbox disabled until the geometry crash is solved.
-            -- {
-            --     type = "checkbox",
-            --     id = "noclip",
-            --     label = "Noclip",
-            --     default = false,
-            --     onChange = function(on) Core.SetNoclip(on) end,
-            -- },
+            {
+                type = "checkbox",
+                id = "noclip",
+                label = "Noclip",
+                default = false,
+                onChange = function(on) Core.SetNoclip(on) end,
+            },
             { type = "label", id = "flySpeed", label = "Fly speed: 100%" },
             { type = "label", id = "flyHint", label = "WASD move, Space up, X down. [ ] change speed." },
         },
@@ -294,6 +329,7 @@ else
         },
     })
 
+-- Hotkey list. Empty default means the row shows None until the user assigns a key.
     local actions = {
         { id = "god", label = "God Mode", default = "NUM_ONE", fn = function() Core.ToggleGod() end },
         { id = "stamina", label = "Infinite Stamina", default = "NUM_TWO", fn = function() Core.ToggleStamina() end },
@@ -302,13 +338,22 @@ else
         { id = "cycle", label = "Next Outfit", default = "NUM_FIVE", fn = function() Core.CycleOutfit() end },
         { id = "base", label = "Base Outfit", default = "NUM_SIX", fn = function() Core.ResetOutfit() end },
         { id = "drunk", label = "Max Drunk", default = "NUM_SEVEN", fn = function() Core.MaxDrunk() end },
-        { id = "spank", label = "Force Spankable", default = "NUM_EIGHT", fn = function() Core.ForceSpank() end },
+        { id = "spank", label = "Spankable", default = "NUM_EIGHT", fn = function() Core.ForceSpank() end },
+        { id = "cowbell", label = "Cowbell", default = "", fn = function() Core.ToggleCowbell() end },
+        { id = "follow", label = "Follow", default = "", fn = function() Core.ToggleFollow() end },
+        { id = "jump", label = "Jump", default = "SPACE", fn = function() Core.TryJump() end },
+        { id = "itemApple", label = "Apple", default = "FIVE", fn = function() Core.PlayItem("apple") end },
+        { id = "itemCarrot", label = "Carrot", default = "SIX", fn = function() Core.PlayItem("carrot") end },
+        { id = "itemWine", label = "Wine", default = "SEVEN", fn = function() Core.PlayItem("wine") end },
+        { id = "itemBeer", label = "Beer", default = "EIGHT", fn = function() Core.PlayItem("beer") end },
+        { id = "itemGlow", label = "Glowstick", default = "NINE", fn = function() Core.PlayItem("glowstick") end },
+        { id = "itemFlash", label = "Flashlight", default = "ZERO", fn = function() Core.PlayItem("flashlight") end },
         { id = "hud", label = "Hide HUD", default = "NUM_NINE", fn = function() Core.ToggleUI() end },
         { id = "freeze", label = "Freeze", default = "NUM_ZERO", fn = function() Core.ToggleFrozen() end },
         { id = "slow", label = "Slo-Mo", default = "DECIMAL", fn = function() Core.ToggleSlow() end },
         { id = "crouch", label = "Crouch", default = "C", fn = function() Core.ToggleCrouch() end },
         { id = "freecam", label = "Freecam", default = "END", fn = function() Core.ToggleFreecam() end },
-        -- { id = "noclip", label = "Noclip", default = "OEM_FIVE", fn = function() Core.ToggleNoclip() end },
+        { id = "noclip", label = "Noclip", default = "OEM_FIVE", fn = function() Core.ToggleNoclip() end },
         { id = "flyDown", label = "Fly Slower", default = "OEM_FOUR", fn = function() Core.BumpFlySpeed(-1) end },
         { id = "flyUp", label = "Fly Faster", default = "OEM_SIX", fn = function() Core.BumpFlySpeed(1) end },
     }
@@ -336,6 +381,7 @@ else
         }
         if symbols[id] then return symbols[id] end
         if id == "END" then return "End" end
+        if id == "SPACE" then return "Space" end
         if id:find("CONTROL", 1, true) then return "Ctrl" end
         local num = id:match("^NUM_(.+)$")
         if num == "ZERO" then return "Num 0" end
@@ -356,7 +402,9 @@ else
     local keyToAction = {}
     for i = 1, #actions do
         actionById[actions[i].id] = actions[i]
-        keyToAction[actions[i].default] = actions[i].id
+        if actions[i].default and actions[i].default ~= "" then
+            keyToAction[actions[i].default] = actions[i].id
+        end
     end
 
     local function packBinds()
@@ -427,7 +475,7 @@ else
     end
 
     local bindRows = {
-        { type = "label", id = "bind_status", label = "Assign, then press a key. Home still closes the menu." },
+        { type = "label", id = "bind_status", label = "Assign, then press a key. Tab still closes the menu." },
     }
     for i = 1, #actions do
         local a = actions[i]
@@ -462,6 +510,7 @@ else
         return ok and open == true
     end
 
+-- Menu open: only Assign and Esc. Game hotkeys wait until the menu closes.
     local function onKey(keyId)
         if pending then
             if keyId == "ESCAPE" then
@@ -499,9 +548,9 @@ else
         "ZERO", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE",
         "OEM_MINUS", "OEM_PLUS", "OEM_COMMA", "OEM_PERIOD",
         "OEM_ONE", "OEM_TWO", "OEM_THREE", "OEM_FOUR", "OEM_FIVE", "OEM_SIX", "OEM_SEVEN",
-        "END", "LEFT_CONTROL", "LCONTROL", "CONTROL",
+        "END", "SPACE", "LEFT_CONTROL", "LCONTROL", "CONTROL",
         "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F11", "F12",
-        "INSERT", "DELETE", "PAGE_UP", "PAGE_DOWN", "END",
+        "INSERT", "DELETE", "PAGE_UP", "PAGE_DOWN",
         "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
         "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
     }
@@ -521,10 +570,10 @@ else
         end
     end
 
-    print("[RokuMenu] Overlay ready. Press Home to open.\n")
+    print("[RokuMenu] Overlay ready. Press Tab to open.\n")
 end
 
 Core.StartLoops()
 
-print("[RokuMenu] Loaded. Home = menu. NumPad keys are ignored while the menu is open.")
+print("[RokuMenu] Loaded. Tab = menu. NumPad keys are ignored while the menu is open.")
 print("[RokuMenu] Disable GONTrainer while this is enabled.\n")
