@@ -1,5 +1,5 @@
 ============================================================
-        ROKUMENU  (GON / UE5 in-game menu)
+        ROKUMENU v0.3  (GON / UE5 in-game menu)
 ============================================================
 
 An in-game menu for the same cheats as GONTrainer, plus
@@ -35,7 +35,9 @@ FEATURES
 * Player cheats: god mode, infinite stamina, crouch.
 * Crouch lowers the view, cuts your speed to 70%, and
   shrinks Roku's head vision box to 10%.
-* Roku: ghost, freeze, 5% slo-mo, max drunk, cowbell, follow.
+* Roku: ghost, freeze, 5% slo-mo, max drunk, follow.
+* Cowbell stays on the Cheats tab and is greyed out. GON 1.26
+  removed it for performance. The row stays for when it returns.
 * Spankable stays on. It is set again every 5 seconds so
   another spank can start after the animation finishes.
 * Follow sets her approach distance very short and turns
@@ -62,6 +64,13 @@ FEATURES
 * Settings: mouse, music, and effects. Type a number.
   Closing the menu saves it and applies it. Values are put
   back when Roku loads on the main menu.
+* Keep cheats between loads is on the Cheats tab. It has
+  no hotkey and starts off. While it is on, cheats are saved
+  when Roku unloads, turned off, then put back the next time
+  a level Roku is found. That saved list is kept after you
+  quit the game. Apples, notes, max drunk, and item events
+  are not restored. Noclip and freecam come back on at the
+  new spawn, not the old spot.
 * Bindings tab: Assign, then press a key. Esc cancels.
   Tab cannot be reassigned. Hotkeys do nothing while the
   menu is open, so you can type numbers.
@@ -180,7 +189,7 @@ You should end up with:
 If GONTrainer is installed, rename or delete:
   ...\ue4ss\Mods\GONTrainer\enabled.txt
 
-Do not copy a second "RokuMenu_v0.1" folder into Mods.
+Do not copy a second "RokuMenu_v0.3" folder into Mods.
 
 
 WRONG (will not load)
@@ -188,7 +197,7 @@ WRONG (will not load)
   Next to GON.exe
   ...\Win64\RokuMenu\
   ...\ue4ss\Mods\RokuMenu\RokuMenu\
-  ...\ue4ss\Mods\RokuMenu_v0.1\...
+  ...\ue4ss\Mods\RokuMenu_v0.3\...
 
 
 LAUNCH
@@ -224,6 +233,14 @@ Only delete shared\ModMenu if no other mod is using it.
 ------------------------------------------------------------
 CHANGELOG
 ------------------------------------------------------------
+v0.3:
+* Keep cheats between loads. Checkbox on the Cheats tab, no hotkey.
+  Off until you turn it on. Cheats are saved when Roku unloads,
+  turned off, then put back on the next level.
+* That saved list is kept after you quit and start the game again.
+* Cowbell is greyed out. GON 1.26 removed it for performance.
+  The row stays for when that feature comes back.
+
 v0.2.1:
 * Added pdf install guide.
 

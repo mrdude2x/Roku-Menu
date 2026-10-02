@@ -3992,9 +3992,30 @@ package.preload["ModMenu.widgets.checkbox"] = function(...)
 ]]
 
 local Button = require("ModMenu.widgets.button")
+local Theme = require("ModMenu.core.theme")
 
 local Checkbox = {}
 Checkbox.type = "checkbox"
+
+local function IsEnabled(item)
+    return item == nil or item.enabled ~= false
+end
+
+local function PaintDisabled(ctrl, ctx)
+    if IsEnabled(ctrl.item) then
+        return
+    end
+    pcall(function()
+        if ctrl.widget then
+            ctrl.widget:SetIsEnabled(false)
+        end
+    end)
+    local colors = Theme.Of(ctx and ctx.config)
+    local fg = colors.buttonTextDisabled or colors.textMuted
+    if ctrl.label and ctx and ctx.umg then
+        ctx.umg.StyleText(ctrl.label, ctx.config and ctx.config.fontItem, fg)
+    end
+end
 
 local function Caption(item, isOn)
     if item.showState == false then
@@ -4034,6 +4055,9 @@ function Checkbox.validate(item, sectionId, index)
     end
     if item.onChange ~= nil and type(item.onChange) ~= "function" then
         error(prefix .. " onChange must be a function")
+    end
+    if item.enabled ~= nil and type(item.enabled) ~= "boolean" then
+        error(prefix .. " enabled must be a boolean")
     end
 end
 
@@ -4086,10 +4110,18 @@ function Checkbox.build(ctx)
     if asButton then
         PaintToggle(ctrl, ctx, current)
     end
+    if not IsEnabled(item) then
+        ctx.values[vkey] = false
+        pcall(function() widget:SetIsChecked(false) end)
+        PaintDisabled(ctrl, ctx)
+    end
     table.insert(ctx.liveControls, ctrl)
 end
 
 local function FireToggle(ctrl, ctx, path)
+    if not IsEnabled(ctrl.item) then
+        return false
+    end
     local nextOn = not (ctx.values[ctrl.valueKey] == true)
     ctx.values[ctrl.valueKey] = nextOn
     ctx.umg.SetLabelText(ctrl.label, Caption(ctrl.item, nextOn))
@@ -4104,6 +4136,10 @@ end
 
 --- Native box: IsChecked. Touch button: IsPressed rising edge.
 function Checkbox.poll(ctrl, ctx)
+    if not IsEnabled(ctrl.item) then
+        pcall(function() ctrl.widget:SetIsChecked(false) end)
+        return
+    end
     if not ctx.IsValid(ctrl.widget) then
         return
     end
@@ -4125,6 +4161,9 @@ function Checkbox.poll(ctrl, ctx)
 end
 
 function Checkbox.pollClick(ctrl, ctx)
+    if not IsEnabled(ctrl.item) then
+        return false
+    end
     if not ctrl.asButton then
         return false
     end
@@ -4138,6 +4177,9 @@ function Checkbox.apply(ctrl, value, ctx)
     if not ctx.IsValid(ctrl.widget) then
         return
     end
+    if not IsEnabled(ctrl.item) then
+        value = false
+    end
     local on = value and true or false
     if ctrl.asButton then
         ctx.umg.SetLabelText(ctrl.label, Caption(ctrl.item, on))
@@ -4148,6 +4190,9 @@ function Checkbox.apply(ctrl, value, ctx)
         ctrl.widget:SetIsChecked(on)
     end)
     ctx.umg.SetLabelText(ctrl.label, Caption(ctrl.item, on))
+    if not IsEnabled(ctrl.item) then
+        PaintDisabled(ctrl, ctx)
+    end
 end
 
 return Checkbox

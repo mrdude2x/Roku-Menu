@@ -9,7 +9,7 @@ if not okMenu or not ModMenu then
     print("[RokuMenu] Hotkeys still work (NumPad, NumLock ON).\n")
 else
     ModMenu.Init({
-        title = "RokuMenu",
+        title = "RokuMenu v0.3",
         instanceId = "RokuMenu",
         key = Key.TAB,
         keyHint = "Tab",
@@ -32,6 +32,7 @@ else
             sfx = 1.0,
             binds = "",
             dock = "left",
+            persistCheats = false,
         },
     })
     Core.LoadUserSettings({
@@ -42,6 +43,11 @@ else
         music = Config.Get("music"),
         sfx = Config.Get("sfx"),
     })
+    Core.SetCheatStore(function(snap)
+        Config.Set("cheatState", snap)
+    end)
+    Core.SetPersistCheats(Config.Get("persistCheats") == true)
+    Core.LoadCheatSnapshot(Config.Get("cheatState"))
 
     local function PersistSettings()
         local prev = Core.GetUserSettings()
@@ -82,6 +88,7 @@ else
         pcall(function() ModMenu.Set("Roku", "spank", state.spank) end)
         pcall(function() ModMenu.Set("Roku", "cowbell", state.cowbell) end)
         pcall(function() ModMenu.Set("Roku", "follow", state.follow) end)
+        pcall(function() ModMenu.Set("Player", "persist", state.persist) end)
         pcall(function() ModMenu.Set("Looks", "skin", state.skin) end)
         local lock = "Roku: not in this map"
         if state.roku and state.roku ~= "" and state.roku ~= "None" then
@@ -111,6 +118,17 @@ else
         title = "Player",
         tab = "Cheats",
         items = {
+            {
+                type = "checkbox",
+                id = "persist",
+                label = "Keep cheats between loads",
+                default = Config.Get("persistCheats") == true,
+                onChange = function(on)
+                    Core.SetPersistCheats(on)
+                    Config.Set("persistCheats", not not on)
+                end,
+            },
+            { type = "separator" },
             {
                 type = "checkbox",
                 id = "god",
@@ -189,8 +207,10 @@ else
             {
                 type = "checkbox",
                 id = "cowbell",
-                label = "Cowbell",
+                label = "Cowbell (removed in 1.26)",
                 default = false,
+                enabled = false,
+                showState = false,
                 onChange = function(on) Core.SetCowbell(on) end,
             },
             {
@@ -339,7 +359,7 @@ else
         { id = "base", label = "Base Outfit", default = "NUM_SIX", fn = function() Core.ResetOutfit() end },
         { id = "drunk", label = "Max Drunk", default = "NUM_SEVEN", fn = function() Core.MaxDrunk() end },
         { id = "spank", label = "Spankable", default = "NUM_EIGHT", fn = function() Core.ForceSpank() end },
-        { id = "cowbell", label = "Cowbell", default = "", fn = function() Core.ToggleCowbell() end },
+        { id = "cowbell", label = "Cowbell (removed in 1.26)", default = "", fn = function() end },
         { id = "follow", label = "Follow", default = "", fn = function() Core.ToggleFollow() end },
         { id = "jump", label = "Jump", default = "SPACE", fn = function() Core.TryJump() end },
         { id = "itemApple", label = "Apple", default = "FIVE", fn = function() Core.PlayItem("apple") end },
@@ -489,7 +509,11 @@ else
                     type = "button",
                     id = a.id .. "_set",
                     label = "Assign",
-                    onClick = function() beginAssign(a.id) end,
+                    enabled = a.id ~= "cowbell",
+                    onClick = function()
+                        if a.id == "cowbell" then return end
+                        beginAssign(a.id)
+                    end,
                 },
             },
         }
@@ -570,10 +594,16 @@ else
         end
     end
 
-    print("[RokuMenu] Overlay ready. Press Tab to open.\n")
+    print("[RokuMenu] Overlay ready. v0.3. Press Tab to open.\n")
 end
 
 Core.StartLoops()
 
-print("[RokuMenu] Loaded. Tab = menu. NumPad keys are ignored while the menu is open.")
+print("[RokuMenu] Loaded v0.3. Tab = menu. NumPad keys are ignored while the menu is open.")
 print("[RokuMenu] Disable GONTrainer while this is enabled.\n")
+
+if type(ModRef) == "table" then
+    ModRef.OnUnload = function()
+        Core.SaveCheatsIfStillInLevel()
+    end
+end

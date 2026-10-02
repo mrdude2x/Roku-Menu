@@ -28,6 +28,8 @@ local currentSkinIdx = 1
 local lastLiveRokuNm = ""
 local hadLevelRoku = false
 local savedHudVis = nil
+local persistCheats = false
+local cheatSnapshot = nil
 local listeners = {}
 
 local function notify()
@@ -493,7 +495,55 @@ function M.GetState()
         follow = isFollow,
         fly = math.floor(flyScale * 100 + 0.5),
         skin = currentSkinIdx,
+        persist = persistCheats,
         roku = lastLiveRokuNm,
+    }
+end
+
+local storeCheats = nil
+
+function M.SetCheatStore(fn)
+    storeCheats = fn
+end
+
+local function StoreSnapshot()
+    if storeCheats then
+        pcall(storeCheats, cheatSnapshot)
+    end
+end
+
+function M.SetPersistCheats(on)
+    persistCheats = not not on
+    if not persistCheats then
+        cheatSnapshot = nil
+        StoreSnapshot()
+    end
+    notify()
+end
+
+function M.LoadCheatSnapshot(saved)
+    if not persistCheats or type(saved) ~= "table" then
+        return
+    end
+    local skin = tonumber(saved.skin) or 1
+    skin = math.floor(skin)
+    if skin < 1 or skin > #skins then
+        skin = 1
+    end
+    cheatSnapshot = {
+        god = saved.god == true,
+        stamina = saved.stamina == true,
+        ghost = saved.ghost == true,
+        frozen = saved.frozen == true,
+        slow = saved.slow == true,
+        uiHidden = saved.uiHidden == true,
+        noclip = saved.noclip == true,
+        freecam = saved.freecam == true,
+        crouch = saved.crouch == true,
+        spank = saved.spank == true,
+        cowbell = false,
+        follow = saved.follow == true,
+        skin = skin,
     }
 end
 
@@ -742,7 +792,18 @@ function M.ForceSpank()
     M.SetSpankable(not isSpankHold)
 end
 
+-- GON 1.26 removed cowbell for performance. The menu row stays, greyed out.
+local cowbellRemoved = true
+
 function M.SetCowbell(on)
+    if cowbellRemoved then
+        isCowbell = false
+        if on then
+            print("[RokuMenu] Cowbell is removed in GON 1.26.\n")
+            notify()
+        end
+        return
+    end
     isCowbell = not not on
     RunOnGameThread(function()
         local roku = GetRoku()
@@ -763,7 +824,7 @@ function M.SetCowbell(on)
 end
 
 function M.ReapplyCowbell(roku)
-    if not isCowbell or not roku then return end
+    if cowbellRemoved or not isCowbell or not roku then return end
     pcall(function() roku:cb_event() end)
     pcall(function() roku.bIsCowbellOn = true end)
 end
@@ -1992,6 +2053,86 @@ function M.ToggleCowbell() M.SetCowbell(not isCowbell) end
 function M.ToggleFollow() M.SetFollow(not isFollow) end
 
 -- Cheats clear when the level Roku unloads. Saved mouse and volume settings stay.
+-- Keep cheats between loads stores the toggles first. The next level Roku gets them back.
+-- One-shot buttons (apples, notes, drunk, items) are not stored.
+-- The snapshot is written to config.json and kept after the game quits.
+local function CaptureCheats()
+    return {
+        god = isGodMode,
+        stamina = isInfStamina,
+        ghost = isGhostMode,
+        frozen = isRokuFrozen,
+        slow = isRokuSlow,
+        uiHidden = isUiHidden,
+        noclip = isNoclip,
+        freecam = isFreecam,
+        crouch = isCrouch,
+        spank = isSpankHold,
+        cowbell = isCowbell,
+        follow = isFollow,
+        skin = currentSkinIdx,
+    }
+end
+
+local function RememberCheats()
+    if not persistCheats then
+        cheatSnapshot = nil
+        return
+    end
+    cheatSnapshot = CaptureCheats()
+    StoreSnapshot()
+    print("[RokuMenu] Cheats saved for the next load.\n")
+end
+
+function M.SaveCheatsIfStillInLevel()
+    if not persistCheats or not hadLevelRoku then
+        return
+    end
+    RememberCheats()
+end
+
+local function RestoreSavedCheats()
+    local snap = cheatSnapshot
+    if not snap or not persistCheats then return end
+    local player = GetPlayerPawn()
+    local roku = GetRoku()
+    if not player or not player:IsValid() or not roku or not roku:IsValid() then
+        return
+    end
+    if string.find(SafeGetObjectName(roku), "MainMenu", 1, true) then
+        return
+    end
+    cheatSnapshot = nil
+    if snap.skin and snap.skin ~= 1 then
+        M.SetOutfit(snap.skin)
+    end
+    if snap.god then M.SetGod(true) end
+    if snap.stamina then M.SetStamina(true) end
+    if snap.follow and not snap.ghost then
+        M.SetFollow(true)
+    end
+    if snap.ghost then
+        M.SetGhost(true)
+    end
+    if snap.frozen then
+        M.SetFrozen(true)
+    elseif snap.slow then
+        M.SetSlow(true)
+    end
+    if snap.spank then M.SetSpankable(true) end
+    if snap.cowbell then M.SetCowbell(true) end
+    if snap.uiHidden then M.SetUIHidden(true) end
+    if snap.crouch and not snap.noclip and not snap.freecam then
+        M.SetCrouch(true)
+    end
+    if snap.noclip then
+        M.SetNoclip(true)
+    elseif snap.freecam then
+        M.SetFreecam(true)
+    end
+    print("[RokuMenu] Cheats restored.\n")
+end
+
 local function ResetCheats()
     local player = GetPlayerPawn()
     local roku = GetRoku()
@@ -2031,12 +2172,19 @@ local function ResetCheats()
     itemHoldRot = nil
     if roku and roku:IsValid() then
         pcall(function() roku.bSpankable = false end)
-        pcall(function() roku.bIsCowbellOn = false end)
-        pcall(function() roku:cb_off() end)
+        if not cowbellRemoved then
+            pcall(function() roku.bIsCowbellOn = false end)
+            pcall(function() roku:cb_off() end)
+        end
         pcall(function() roku.CustomTimeDilation = 1.0 end)
     end
     print("[RokuMenu] Level Roku unloaded. Cheats reset.\n")
     notify()
+end
+
+local function UnloadRoku()
+    RememberCheats()
+    ResetCheats()
 end
 
 -- 200ms keeps cheats applied. 16ms runs only while flying or an item clip is playing.
@@ -2123,7 +2271,7 @@ function M.StartLoops()
             if isMenu then
                 if hadLevelRoku then
                     hadLevelRoku = false
-                    ResetCheats()
+                    UnloadRoku()
                 end
                 if currentName ~= lastLiveRokuNm then
                     lastLiveRokuNm = currentName
@@ -2158,11 +2306,12 @@ function M.StartLoops()
                     end)
                     notify()
                 end
+                RestoreSavedCheats()
             end
         else
             if hadLevelRoku then
                 hadLevelRoku = false
-                ResetCheats()
+                UnloadRoku()
             end
             lastLiveRokuNm = ""
         end
