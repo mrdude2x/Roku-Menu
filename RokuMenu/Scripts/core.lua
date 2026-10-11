@@ -1,5 +1,6 @@
--- RokuMenu core: every game read and write lives here.
+-- RokuMenu core v0.4: every game read and write lives here.
 -- main.lua is the menu and the hotkeys. Fix this file when the game updates.
+-- GON 1.3. Stamina cubes add 0.2s and 2 sprint speed. Scales sit on top of that.
 
 local M = {}
 
@@ -56,26 +57,41 @@ local function SafeGetObjectName(obj)
 end
 
 -- Live player and Roku. Default__ names are class templates, not actors in the level.
+-- The 200 ms loop reuses the last live actor. The 1 s scan clears Roku so a level change is seen.
+local pawnCache = nil
+local rokuCache = nil
+
 local function GetPlayerPawn()
+    if pawnCache and pawnCache:IsValid() then
+        return pawnCache
+    end
+    pawnCache = nil
     local players = FindAllOf("BP_HorrorCharacter_C") or {}
     for i = 1, #players do
         local p = players[i]
         if p and p:IsValid() and not string.find(p:GetFullName(), "Default__") then
+            pawnCache = p
             return p
         end
     end
     local pc = FindFirstOf("PlayerController")
     if pc and pc:IsValid() and pc.Pawn and pc.Pawn:IsValid() then
+        pawnCache = pc.Pawn
         return pc.Pawn
     end
     return nil
 end
 
 local function GetRoku()
+    if rokuCache and rokuCache:IsValid() then
+        return rokuCache
+    end
+    rokuCache = nil
     local actors = FindAllOf("BP_Rokuv3_C") or {}
     for i = 1, #actors do
         local a = actors[i]
         if a and a:IsValid() and not string.find(a:GetFullName(), "Default__") then
+            rokuCache = a
             return a
         end
     end
@@ -86,6 +102,7 @@ local function GetRoku()
             local fullName = SafeGetObjectName(c)
             if not string.find(fullName, "Default__") and not string.find(fullName:lower(), "horror") then
                 if c.ApplyOutfit or c.C_shirt1 or string.find(fullName:lower(), "roku") then
+                    rokuCache = c
                     return c
                 end
             end
@@ -127,6 +144,117 @@ local function SetVolume(comp, enabled)
 end
 
 local attackHookInstalled = false
+local damageHookInstalled = false
+
+local STOCK_SPRINT_TIME = 5.0
+local STOCK_RECOVER_WALK = 150.0
+local STOCK_SPRINT = 460.0
+local STOCK_CHASE = 480.0
+local CUBE_TIME = 0.2
+local CUBE_SPEED = 2.0
+local MAX_CUBES = 10
+local STAMINA_SCALES = { 0.5, 1, 1.5, 2, 3 }
+local SPRINT_SCALES = { 0.8, 0.9, 1, 1.1, 1.2 }
+local CHASE_SCALES = { 0.7, 0.8, 0.9, 1, 1.1 }
+
+local dmgMode = "normal"
+local staminaScale = 1.0
+local penaltyOff = false
+local sprintScale = 1.0
+local chaseScale = 1.0
+local lastHealth = nil
+local staminaReady = false
+local damageHookFired = false
+local damageHookTries = 0
+local attackHookTries = 0
+-- Unscaled cube totals. written* is the last number this mod stored, so a later +0.2 / +2 can be seen.
+local timeBase = nil
+local speedBase = nil
+local writtenTime = nil
+local writtenSpeed = nil
+local savedSpeeds = nil
+
+local function StockDistances()
+    return { a = 5500, b = 1500, c = 3000, d = 1000 }
+end
+
+local function WriteNumber(obj, key, value, tol)
+    if not obj or not obj:IsValid() then return false end
+    local cur = nil
+    local ok = pcall(function() cur = obj[key] end)
+    if ok and type(cur) == "number" and math.abs(cur - value) <= tol then
+        return false
+    end
+    pcall(function() obj[key] = value end)
+    return true
+end
+
+local function ClampBase(base, stock, step)
+    if base < stock then return stock end
+    local cap = stock + MAX_CUBES * step
+    if base > cap then return cap end
+    return base
+end
+
+-- Live value matches stock + N cubes (N is 0..10). Returns the unscaled base, or nil.
+local function SnapCubes(live, stock, step)
+    if type(live) ~= "number" then return nil end
+    local n = math.floor(((live - stock) / step) + 0.5)
+    if n < 0 or n > MAX_CUBES then return nil end
+    local base = stock + n * step
+    if math.abs(live - base) > (step * 0.35) then return nil end
+    return base
+end
+
+-- Prefer the value we wrote. A step of one cube updates the base. A jump back to 5+0.2*N is a fresh total.
+local function ReconcileBase(live, written, base, stock, step, scale)
+    if type(live) ~= "number" then
+        return base or stock
+    end
+    local tol = step * 0.35
+    if written ~= nil and math.abs(live - written) <= tol then
+        return base or stock
+    end
+    if written ~= nil then
+        local delta = live - written
+        local cubes = math.floor((delta / step) + 0.5)
+        if cubes ~= 0 and cubes >= -MAX_CUBES and cubes <= MAX_CUBES
+            and math.abs(delta - (cubes * step)) <= tol then
+            return ClampBase((base or stock) + (cubes * step), stock, step)
+        end
+    end
+    local snapped = SnapCubes(live, stock, step)
+    if not snapped and scale and scale ~= 1 and scale > 0 then
+        snapped = SnapCubes(live / scale, stock, step)
+    end
+    if snapped then return snapped end
+    if base then return base end
+    return stock
+end
+
+local function ForgetMoveScale()
+    timeBase = nil
+    speedBase = nil
+    writtenTime = nil
+    writtenSpeed = nil
+    staminaReady = false
+    savedSpeeds = nil
+    pawnCache = nil
+    rokuCache = nil
+end
+
+local function AllowedScale(value, allowed, fallback)
+    local n = tonumber(value)
+    if n == nil then return fallback end
+    for i = 1, #allowed do
+        if math.abs(allowed[i] - n) < 0.001 then return allowed[i] end
+    end
+    return fallback
+end
+
+local function ChosenChase()
+    return STOCK_CHASE * chaseScale
+end
 
 -- Ghost and freeze. Attack montages are blocked. Vision and hearing stay off until it is turned off.
 local function IsAttackName(name)
@@ -160,7 +288,7 @@ end
 local function ReleaseOldFreeze(roku)
     pcall(function()
         if roku.MoveSpeed == 0 then roku.MoveSpeed = 150 end
-        if roku.chasespeed == 0 then roku.chasespeed = 480 end
+        if roku.chasespeed == 0 then roku.chasespeed = ChosenChase() end
         local cm = roku.CharacterMovement
         if cm and cm:IsValid() and cm.MaxWalkSpeed == 0 then
             cm.MaxWalkSpeed = 150
@@ -230,7 +358,6 @@ end
 
 local function InstallAttackHook()
     if attackHookInstalled then return end
-    attackHookInstalled = true
     local ok, err = pcall(function()
         RegisterHook("/Script/Engine.Character:PlayAnimMontage", function(Context, Montage, PlayRate)
             if not isGhostMode and not isRokuFrozen then return end
@@ -252,9 +379,79 @@ local function InstallAttackHook()
         end)
     end)
     if ok then
+        attackHookInstalled = true
         print("[RokuMenu] Attack hook installed\n")
     else
-        print("[RokuMenu] Attack hook failed: " .. tostring(err) .. "\n")
+        attackHookTries = attackHookTries + 1
+        if attackHookTries == 1 then
+            print("[RokuMenu] Attack hook waiting: " .. tostring(err) .. "\n")
+        end
+    end
+end
+
+-- Blueprint hook runs after TakeDamage. Refund part of the drop. Apples stay untouched.
+local function InstallDamageHook()
+    if damageHookInstalled then return end
+    local ok, err = pcall(function()
+        RegisterHook("/Game/Variant_Horror/Blueprints/BP_HorrorCharacter.BP_HorrorCharacter_C:TakeDamage", function(Context)
+            local player = nil
+            pcall(function()
+                if Context and Context.get then
+                    player = Context:get()
+                elseif Context and Context.IsValid then
+                    player = Context
+                end
+            end)
+            if not player or not player:IsValid() then
+                if not damageHookFired then
+                    damageHookFired = true
+                    print("[RokuMenu] Damage hook fired, player context empty\n")
+                end
+                return
+            end
+            local now = nil
+            pcall(function() now = player.Health end)
+            if type(now) ~= "number" then return end
+            if not damageHookFired then
+                damageHookFired = true
+                print("[RokuMenu] Damage hook fired\n")
+            end
+            if isGodMode or dmgMode == "normal" then
+                lastHealth = now
+                return
+            end
+            local prev = lastHealth
+            if type(prev) ~= "number" then
+                lastHealth = now
+                return
+            end
+            local drop = prev - now
+            if drop <= 0.01 then
+                lastHealth = now
+                return
+            end
+            local restored = now
+            if dmgMode == "half" then
+                restored = now + (drop * 0.5)
+            elseif dmgMode == "quarter" then
+                restored = now + (drop * 0.75)
+            end
+            pcall(function() player.Health = restored end)
+            if restored > 0.01 then
+                pcall(function() player.IsDead = false end)
+            end
+            lastHealth = restored
+            print(string.format("[RokuMenu] Damage %s: %.2f -> %.2f, restored to %.2f\n", dmgMode, prev, now, restored))
+        end)
+    end)
+    if ok then
+        damageHookInstalled = true
+        print("[RokuMenu] Damage hook installed\n")
+    else
+        damageHookTries = damageHookTries + 1
+        if damageHookTries == 1 then
+            print("[RokuMenu] Damage hook waiting for the player class\n")
+        end
     end
 end
 
@@ -263,7 +460,9 @@ local clothingPieces = {
     "C_shirt1", "C_pants1",
     "C_sailortop", "C_sailortop2", "C_sailorskirt", "C_sailorskirt2", "C_sailorshibari",
     "C_bunnyskull", "C_bunnyears", "C_bunnyupper", "C_bunnybra", "C_bunnycorset", "skirt_test",
-    "C_Bikini1"
+    "C_Bikini1",
+    "C_CGbikini", "C_CGboots", "C_CGsleeves", "CGhead", "CG_hairpin",
+    "C_Dbikini", "C_Dboots",
 }
 
 local function HideAllClothing(actor)
@@ -405,9 +604,14 @@ local skins = {
             local mat = FindBunnyMaterial(1)
             if mat then ApplyBunnyBody(actor, mat) end
             SetPieceVisible(actor, "C_bunnyears", true)
+            SetPieceVisible(actor, "C_bunnybra", true)
             SetPieceVisible(actor, "C_bunnycorset", true)
             SetPieceVisible(actor, "C_bunnyupper", true)
             pcall(function() actor:ApplyOutfit(FName("Bunny1")) end)
+            SetPieceVisible(actor, "C_bunnyears", true)
+            SetPieceVisible(actor, "C_bunnybra", true)
+            SetPieceVisible(actor, "C_bunnycorset", true)
+            SetPieceVisible(actor, "C_bunnyupper", true)
         end
     },
     [7] = {
@@ -428,9 +632,11 @@ local skins = {
         apply = function(actor)
             HideAllClothing(actor)
             ResetToMeshDefaultMaterials(actor)
+            pcall(function() actor:ApplyOutfit(FName("Sailor1")) end)
+            -- The 1.3 row also lists the shibari ropes. Sailor 1 stays the uniform.
+            SetPieceVisible(actor, "C_sailorshibari", false)
             SetPieceVisible(actor, "C_sailortop", true)
             SetPieceVisible(actor, "C_sailorskirt", true)
-            pcall(function() actor:ApplyOutfit(FName("Sailor")) end)
         end
     },
     [9] = {
@@ -438,9 +644,10 @@ local skins = {
         apply = function(actor)
             HideAllClothing(actor)
             ResetToMeshDefaultMaterials(actor)
+            pcall(function() actor:ApplyOutfit(FName("Sailor2")) end)
+            SetPieceVisible(actor, "C_sailorshibari", false)
             SetPieceVisible(actor, "C_sailortop2", true)
             SetPieceVisible(actor, "C_sailorskirt2", true)
-            pcall(function() actor:ApplyOutfit(FName("Sailor2")) end)
         end
     },
     [10] = {
@@ -475,6 +682,27 @@ local skins = {
             pcall(function() actor:ApplyOutfit(FName("Shibari")) end)
             HideAllClothing(actor)
             SetPieceVisible(actor, "C_shirt1", true)
+        end
+    },
+    [14] = {
+        name = "Cowmeat Roku",
+        apply = function(actor)
+            HideAllClothing(actor)
+            pcall(function() actor:ApplyOutfit(FName("Cowmeat")) end)
+            SetPieceVisible(actor, "C_CGbikini", true)
+            SetPieceVisible(actor, "C_CGboots", true)
+            SetPieceVisible(actor, "C_CGsleeves", true)
+            SetPieceVisible(actor, "CGhead", true)
+            SetPieceVisible(actor, "CG_hairpin", true)
+        end
+    },
+    [15] = {
+        name = "Dark Roku",
+        apply = function(actor)
+            HideAllClothing(actor)
+            pcall(function() actor:ApplyOutfit(FName("Dark")) end)
+            SetPieceVisible(actor, "C_Dbikini", true)
+            SetPieceVisible(actor, "C_Dboots", true)
         end
     }
 }
@@ -559,6 +787,226 @@ function M.OnChange(fn)
     listeners[#listeners + 1] = fn
 end
 
+-- Difficulty tab. One choice per row. Stock rows do not write on the loop.
+-- Stamina time and sprint speed scale the cube-adjusted base, not the bare 5s / 460.
+local function ApplyEmptyPenalty(player)
+    if not player or not player:IsValid() then return end
+    if penaltyOff then
+        local walk = 240
+        pcall(function()
+            local w = player["Walk Speed"]
+            if type(w) == "number" and w > 1 then walk = w end
+        end)
+        WriteNumber(player, "Recovering Walk Speed", walk, 0.5)
+    else
+        WriteNumber(player, "Recovering Walk Speed", STOCK_RECOVER_WALK, 0.5)
+    end
+end
+
+local function ApplySprintScale(player)
+    if isCrouch then return end
+    if not player or not player:IsValid() then return end
+    if sprintScale == 1 and writtenSpeed == nil then
+        return
+    end
+    local live = nil
+    pcall(function() live = player["Sprint Speed"] end)
+    speedBase = ReconcileBase(live, writtenSpeed, speedBase, STOCK_SPRINT, CUBE_SPEED, sprintScale)
+    local target = speedBase * sprintScale
+    if sprintScale == 1 then
+        WriteNumber(player, "Sprint Speed", target, 0.5)
+        writtenSpeed = nil
+        return
+    end
+    WriteNumber(player, "Sprint Speed", target, 0.5)
+    writtenSpeed = target
+    local sprinting = false
+    pcall(function() sprinting = player["Wants to Sprint"] == true end)
+    if not sprinting then return end
+    pcall(function()
+        local cm = player.CharacterMovement
+        if cm and cm:IsValid() then
+            local cur = cm.MaxWalkSpeed
+            if type(cur) ~= "number" or math.abs(cur - target) > 0.5 then
+                cm.MaxWalkSpeed = target
+            end
+        end
+    end)
+end
+
+local function ApplyStaminaScale(player, rescaleMeter)
+    if not player or not player:IsValid() then return end
+    local live = nil
+    pcall(function() live = player["Sprint Time"] end)
+    timeBase = ReconcileBase(live, writtenTime, timeBase, STOCK_SPRINT_TIME, CUBE_TIME, staminaScale)
+    local newTime = timeBase * staminaScale
+    if rescaleMeter and not isInfStamina and type(live) == "number" and live > 0.05 then
+        local meter = nil
+        pcall(function() meter = player["Sprint Meter"] end)
+        pcall(function() player["Sprint Time"] = newTime end)
+        if type(meter) == "number" then
+            local scaled = meter * (newTime / live)
+            if scaled > newTime then scaled = newTime end
+            if scaled < 0 then scaled = 0 end
+            pcall(function() player["Sprint Meter"] = scaled end)
+        end
+    else
+        WriteNumber(player, "Sprint Time", newTime, 0.02)
+        if isInfStamina then
+            WriteNumber(player, "Sprint Meter", newTime, 0.02)
+            pcall(function()
+                if player.Recovering ~= false then player.Recovering = false end
+            end)
+            pcall(function()
+                local rt = player["Recovery Time"]
+                if type(rt) ~= "number" or rt ~= 0 then
+                    player["Recovery Time"] = 0.0
+                end
+            end)
+        else
+            pcall(function()
+                local meter = player["Sprint Meter"]
+                if type(meter) == "number" and meter > newTime + 0.02 then
+                    player["Sprint Meter"] = newTime
+                end
+            end)
+        end
+    end
+    if staminaScale == 1 and not isInfStamina then
+        writtenTime = nil
+    else
+        writtenTime = newTime
+    end
+    staminaReady = true
+end
+
+local function ApplyChaseScale(roku)
+    if isRokuFrozen then return end
+    if not roku or not roku:IsValid() then return end
+    local target = ChosenChase()
+    pcall(function()
+        local cur = roku.chasespeed
+        if type(cur) ~= "number" or math.abs(cur - target) > 0.5 then
+            roku.chasespeed = target
+        end
+    end)
+end
+
+local function EnforceDifficulty()
+    local needHealth = dmgMode ~= "normal"
+    local needStamina = staminaScale ~= 1 or isInfStamina
+    local needPenalty = penaltyOff
+    local needSprint = sprintScale ~= 1
+    local needChase = chaseScale ~= 1 and not isRokuFrozen
+    if not needHealth and not needStamina and not needPenalty and not needSprint and not needChase then
+        return
+    end
+    local player = GetPlayerPawn()
+    if player and player:IsValid() then
+        if needHealth then
+            pcall(function()
+                local h = player.Health
+                if type(h) == "number" then lastHealth = h end
+            end)
+        end
+        if needStamina then
+            ApplyStaminaScale(player, not staminaReady)
+        end
+        if needPenalty then
+            ApplyEmptyPenalty(player)
+        end
+        if needSprint then
+            ApplySprintScale(player)
+        end
+    end
+    if needChase then
+        ApplyChaseScale(GetRoku())
+    end
+end
+
+function M.SetDamageMode(mode)
+    if mode == "off" then mode = "quarter" end
+    if mode ~= "half" and mode ~= "quarter" then
+        mode = "normal"
+    end
+    dmgMode = mode
+    RunOnGameThread(function()
+        local player = GetPlayerPawn()
+        if player and player:IsValid() then
+            pcall(function()
+                local h = player.Health
+                if type(h) == "number" then lastHealth = h end
+            end)
+        end
+    end)
+    print(string.format("[RokuMenu] Roku damage: %s\n", dmgMode))
+end
+
+function M.SetStaminaScale(scale)
+    staminaScale = AllowedScale(scale, STAMINA_SCALES, 1)
+    RunOnGameThread(function()
+        local player = GetPlayerPawn()
+        if player then
+            ApplyStaminaScale(player, true)
+        else
+            staminaReady = false
+        end
+        print(string.format("[RokuMenu] Stamina scale: %.2f\n", staminaScale))
+    end)
+end
+
+function M.SetPenaltyMode(mode)
+    penaltyOff = (mode == "off")
+    RunOnGameThread(function()
+        local player = GetPlayerPawn()
+        if player then
+            ApplyEmptyPenalty(player)
+        end
+        print(string.format("[RokuMenu] Empty stamina penalty: %s\n", penaltyOff and "OFF" or "ON"))
+    end)
+end
+
+function M.SetSprintScale(scale)
+    sprintScale = AllowedScale(scale, SPRINT_SCALES, 1)
+    RunOnGameThread(function()
+        local player = GetPlayerPawn()
+        if player and not isCrouch then
+            ApplySprintScale(player)
+        end
+        print(string.format("[RokuMenu] Sprint scale: %.2f\n", sprintScale))
+    end)
+end
+
+function M.SetChaseScale(scale)
+    chaseScale = AllowedScale(scale, CHASE_SCALES, 1)
+    RunOnGameThread(function()
+        if not isRokuFrozen then
+            ApplyChaseScale(GetRoku())
+        end
+        print(string.format("[RokuMenu] Chase scale: %.2f\n", chaseScale))
+    end)
+end
+
+function M.ApplySavedDifficulty(opts)
+    if type(opts) ~= "table" then return end
+    M.SetDamageMode(opts.dmg)
+    staminaScale = AllowedScale(opts.stamina, STAMINA_SCALES, 1)
+    penaltyOff = (opts.penalty == "off")
+    sprintScale = AllowedScale(opts.sprint, SPRINT_SCALES, 1)
+    chaseScale = AllowedScale(opts.chase, CHASE_SCALES, 1)
+    staminaReady = false
+    RunOnGameThread(function()
+        EnforceDifficulty()
+    end)
+    print(string.format("[RokuMenu] Difficulty: damage %s, stamina %.2f, penalty %s, sprint %.2f, chase %.2f\n",
+        dmgMode, staminaScale, penaltyOff and "off" or "on", sprintScale, chaseScale))
+end
+
+function M.OnLevelRoku()
+    ForgetMoveScale()
+    InstallDamageHook()
+end
+
 -- Cheats, HUD, apples, and the outfit buttons.
 function M.SetGod(on)
     RunOnGameThread(function()
@@ -587,11 +1035,9 @@ function M.SetStamina(on)
         end
         isInfStamina = not not on
         if isInfStamina then
-            pcall(function()
-                player["Sprint Meter"] = 5.0
-                player.Recovering = false
-                player["Recovery Time"] = 0.0
-            end)
+            ApplyStaminaScale(player, false)
+        elseif staminaScale == 1 then
+            writtenTime = nil
         end
         print(string.format("[RokuMenu] Infinite Stamina: %s\n", isInfStamina and "ON" or "OFF"))
         notify()
@@ -604,7 +1050,7 @@ function M.SetGhost(on)
         if on and isFollow then
             isFollow = false
             local player = GetPlayerPawn()
-            local d = followSaved or { a = 5300, b = 1500, c = 4000, d = 1200 }
+            local d = followSaved or StockDistances()
             if player and player:IsValid() then
                 pcall(function() player.EasyDistanceCheckA = d.a end)
                 pcall(function() player.EasyDistanceCheckB = d.b end)
@@ -641,6 +1087,7 @@ function M.SetFrozen(on)
                 ApplyGhostState(roku, false)
             end
             pcall(function() roku:NormalSpeed() end)
+            ApplyChaseScale(roku)
         end
         print(string.format("[RokuMenu] Freeze: %s\n", isRokuFrozen and "ON" or "OFF"))
         notify()
@@ -792,14 +1239,14 @@ function M.ForceSpank()
     M.SetSpankable(not isSpankHold)
 end
 
--- GON 1.26 removed cowbell for performance. The menu row stays, greyed out.
+-- GON 1.3 uses the bell as the Cowmeat unlock. This cheat does not call cb_event.
 local cowbellRemoved = true
 
 function M.SetCowbell(on)
     if cowbellRemoved then
         isCowbell = false
         if on then
-            print("[RokuMenu] Cowbell is removed in GON 1.26.\n")
+            print("[RokuMenu] Cowbell cheat stays off. GON 1.3 uses the bell for Cowmeat.\n")
             notify()
         end
         return
@@ -957,7 +1404,7 @@ end
 -- Follow uses a very short detection distance and the same calm state as ghost.
 -- Ghost and Follow turn each other off.
 local function ReadDistances(player)
-    local d = { a = 5300, b = 1500, c = 4000, d = 1200 }
+    local d = StockDistances()
     pcall(function() if player.EasyDistanceCheckA > 100 then d.a = player.EasyDistanceCheckA end end)
     pcall(function() if player.EasyDistanceCheckB > 50 then d.b = player.EasyDistanceCheckB end end)
     pcall(function() if player.HardDistanceCheckA > 100 then d.c = player.HardDistanceCheckA end end)
@@ -977,19 +1424,21 @@ local function ApplyFollowCalm(roku, on)
     if not roku or not roku:IsValid() then return end
     if on then
         QuietBlind(roku)
-        SetVolume(roku.AttackBox, false)
-        SetVolume(roku.crushbox, false)
         SetVolume(roku.VisionBox, false)
         SetVolume(roku.HearingSphere, false)
+        for i = 1, #slapVolumes do
+            SetVolume(roku[slapVolumes[i]], false)
+        end
     else
         pcall(function() roku.HasAttacked = false end)
         pcall(function() roku.bCanBump = true end)
         pcall(function() roku.bSensesEnabled = true end)
         if not isGhostMode and not isRokuFrozen then
-            SetVolume(roku.AttackBox, true)
-            SetVolume(roku.crushbox, true)
             SetVolume(roku.VisionBox, true)
             SetVolume(roku.HearingSphere, true)
+            for i = 1, #slapVolumes do
+                SetVolume(roku[slapVolumes[i]], true)
+            end
         end
     end
 end
@@ -1023,9 +1472,9 @@ function M.SetFollow(on)
             WriteDistances(player, { a = 53, b = 53, c = 53, d = 53 })
             DropChaseOnceForFollow(roku)
             ApplyFollowCalm(roku, true)
-            print("[RokuMenu] Follow ON. Distance 53, senses and attack volumes off.\n")
+            print("[RokuMenu] Follow ON. Distance 53, chase and swat volumes off.\n")
         else
-            WriteDistances(player, followSaved or { a = 5300, b = 1500, c = 4000, d = 1200 })
+            WriteDistances(player, followSaved or StockDistances())
             ApplyFollowCalm(roku, false)
             print("[RokuMenu] Follow OFF. Distance and volumes restored.\n")
         end
@@ -1661,7 +2110,7 @@ end
 
 local function RestoreSight(player, roku)
     if player and player:IsValid() and not isFollow then
-        WriteDistances(player, followSaved or { a = 5300, b = 1500, c = 4000, d = 1200 })
+        WriteDistances(player, followSaved or StockDistances())
     end
     if roku and roku:IsValid() then
         SetVisionBox(roku, 1)
@@ -1674,7 +2123,7 @@ M.RestoreSight = RestoreSight
 
 local function CaptureSight(player, roku)
     if savedDist == nil and player then
-        savedDist = { a = 5300, b = 1500, c = 4000, d = 1200 }
+        savedDist = StockDistances()
         pcall(function()
             if player.EasyDistanceCheckA > 100 then savedDist.a = player.EasyDistanceCheckA end
         end)
@@ -1714,8 +2163,6 @@ end
 
 
 
-local savedSpeeds = nil
-
 local function ApplyCrouchSpeed(player, on)
     if not player or not player:IsValid() then return end
     if savedSpeeds == nil then
@@ -1729,21 +2176,68 @@ local function ApplyCrouchSpeed(player, on)
             if type(s) == "number" and s > 1 then savedSpeeds.sprint = s end
         end)
         pcall(function()
+            local sprinting = player["Wants to Sprint"] == true
             local cm = player.CharacterMovement
-            if cm and cm:IsValid() and type(cm.MaxWalkSpeed) == "number" and cm.MaxWalkSpeed > 1 then
+            if not sprinting and cm and cm:IsValid() and type(cm.MaxWalkSpeed) == "number" and cm.MaxWalkSpeed > 1 then
                 savedSpeeds.max = cm.MaxWalkSpeed
             end
         end)
     end
+    if speedBase == nil then
+        speedBase = SnapCubes(savedSpeeds.sprint, STOCK_SPRINT, CUBE_SPEED)
+        if not speedBase and sprintScale ~= 1 then
+            speedBase = SnapCubes(savedSpeeds.sprint / sprintScale, STOCK_SPRINT, CUBE_SPEED)
+        end
+        speedBase = speedBase or STOCK_SPRINT
+    end
     local scale = on and 0.7 or 1
-    pcall(function() player["Walk Speed"] = savedSpeeds.walk * scale end)
-    pcall(function() player["Sprint Speed"] = savedSpeeds.sprint * scale end)
+    WriteNumber(player, "Walk Speed", savedSpeeds.walk * scale, 0.5)
+    local sprintTarget
+    if on then
+        local live = nil
+        pcall(function() live = player["Sprint Speed"] end)
+        local expected = speedBase * 0.7
+        if type(live) == "number" and math.abs(live - expected) > 0.6 then
+            local delta = live - expected
+            local cubes = math.floor((delta / CUBE_SPEED) + 0.5)
+            local tol = CUBE_SPEED * 0.35
+            if cubes ~= 0 and cubes >= -MAX_CUBES and cubes <= MAX_CUBES
+                and math.abs(delta - (cubes * CUBE_SPEED)) <= tol then
+                speedBase = ClampBase(speedBase + (cubes * CUBE_SPEED), STOCK_SPRINT, CUBE_SPEED)
+            else
+                local snapped = SnapCubes(live, STOCK_SPRINT, CUBE_SPEED)
+                if snapped then speedBase = snapped end
+            end
+        end
+        sprintTarget = speedBase * 0.7
+    else
+        sprintTarget = speedBase * sprintScale
+        if sprintScale == 1 then
+            writtenSpeed = nil
+        else
+            writtenSpeed = sprintTarget
+        end
+    end
+    WriteNumber(player, "Sprint Speed", sprintTarget, 0.5)
     pcall(function()
         local cm = player.CharacterMovement
-        if cm and cm:IsValid() then
-            cm.MaxWalkSpeed = savedSpeeds.max * scale
+        if not cm or not cm:IsValid() then return end
+        local maxTarget = savedSpeeds.max * scale
+        if on then
+            maxTarget = savedSpeeds.max * 0.7
+        else
+            local sprinting = false
+            pcall(function() sprinting = player["Wants to Sprint"] == true end)
+            if sprinting then maxTarget = sprintTarget end
+        end
+        local cur = cm.MaxWalkSpeed
+        if type(cur) ~= "number" or math.abs(cur - maxTarget) > 0.5 then
+            cm.MaxWalkSpeed = maxTarget
         end
     end)
+    if penaltyOff or not on then
+        ApplyEmptyPenalty(player)
+    end
 end
 
 function M.SetCrouch(on)
@@ -2142,7 +2636,7 @@ local function ResetCheats()
     end
     if isFollow and player then
         isFollow = false
-        WriteDistances(player, followSaved or { a = 5300, b = 1500, c = 4000, d = 1200 })
+        WriteDistances(player, followSaved or StockDistances())
     end
     if isFreecam and player then
         StopFreecam(player)
@@ -2178,6 +2672,7 @@ local function ResetCheats()
         end
         pcall(function() roku.CustomTimeDilation = 1.0 end)
     end
+    ForgetMoveScale()
     print("[RokuMenu] Level Roku unloaded. Cheats reset.\n")
     notify()
 end
@@ -2188,39 +2683,55 @@ local function UnloadRoku()
 end
 
 -- 200ms keeps cheats applied. 16ms runs only while flying or an item clip is playing.
+-- Stock difficulty rows return before any actor lookup. Hooks retry until the class is loaded.
 function M.StartLoops()
     InstallAttackHook()
-    local function EnforceToggles()
-        if isGodMode or isInfStamina or isGhostMode or isRokuFrozen or isCrouch or isFollow then
-            do
-                local player = GetPlayerPawn()
-                if player and player:IsValid() then
-                    if isGodMode then
-                        pcall(function()
-                            player.Health = 1.0
-                            player.bCanBeDamaged = false
-                            player.IsDead = false
-                        end)
-                    end
-                    if isInfStamina then
-                        pcall(function()
-                            player["Sprint Meter"] = 5.0
-                            player.Recovering = false
-                            player["Recovery Time"] = 0.0
-                        end)
-                    end
+    InstallDamageHook()
+    if not attackHookInstalled or not damageHookInstalled then
+        local hookTries = 0
+        LoopAsync(500, function()
+            if not attackHookInstalled then InstallAttackHook() end
+            if not damageHookInstalled then InstallDamageHook() end
+            if attackHookInstalled and damageHookInstalled then
+                return true
+            end
+            hookTries = hookTries + 1
+            if hookTries >= 24 then
+                if not damageHookInstalled then
+                    print("[RokuMenu] Damage hook stopped waiting\n")
                 end
-                if isGhostMode or isRokuFrozen then
-                    local roku = GetRoku()
-                    if roku and roku:IsValid() then
-                        QuietBlind(roku)
-                        StopAttackAnims(roku)
-                        SetVolume(roku.VisionBox, false)
-                        SetVolume(roku.HearingSphere, false)
-                        for i = 1, #slapVolumes do
-                            SetVolume(roku[slapVolumes[i]], false)
-                        end
-                    end
+                if not attackHookInstalled then
+                    print("[RokuMenu] Attack hook stopped waiting\n")
+                end
+                return true
+            end
+            return false
+        end)
+    end
+    local function EnforceToggles()
+        if isGodMode then
+            local player = GetPlayerPawn()
+            if player and player:IsValid() then
+                pcall(function()
+                    if player.Health ~= 1.0 then player.Health = 1.0 end
+                end)
+                pcall(function()
+                    if player.bCanBeDamaged ~= false then player.bCanBeDamaged = false end
+                end)
+                pcall(function()
+                    if player.IsDead ~= false then player.IsDead = false end
+                end)
+            end
+        end
+        if isGhostMode or isRokuFrozen then
+            local roku = GetRoku()
+            if roku and roku:IsValid() then
+                QuietBlind(roku)
+                StopAttackAnims(roku)
+                SetVolume(roku.VisionBox, false)
+                SetVolume(roku.HearingSphere, false)
+                for i = 1, #slapVolumes do
+                    SetVolume(roku[slapVolumes[i]], false)
                 end
             end
         end
@@ -2235,6 +2746,7 @@ function M.StartLoops()
     M._flyTick = M.FlyTick
     LoopAsync(200, function()
         EnforceToggles()
+        EnforceDifficulty()
         return false
     end)
     local function FlyLoop()
@@ -2264,6 +2776,7 @@ function M.StartLoops()
     end)
 
     LoopAsync(1000, function()
+        rokuCache = nil
         local roku = GetRoku()
         if roku and roku:IsValid() then
             local currentName = SafeGetObjectName(roku)
@@ -2286,6 +2799,7 @@ function M.StartLoops()
                 if currentName ~= lastLiveRokuNm then
                     lastLiveRokuNm = currentName
                     print(string.format("\n[RokuMenu] Locked onto live Roku: %s\n", currentName))
+                    M.OnLevelRoku()
                     RunOnGameThread(function()
                         if skins[currentSkinIdx] then
                             skins[currentSkinIdx].apply(roku)

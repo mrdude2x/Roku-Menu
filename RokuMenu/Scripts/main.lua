@@ -9,15 +9,15 @@ if not okMenu or not ModMenu then
     print("[RokuMenu] Hotkeys still work (NumPad, NumLock ON).\n")
 else
     ModMenu.Init({
-        title = "RokuMenu v0.3",
+        title = "RokuMenu v0.4",
         instanceId = "RokuMenu",
         key = Key.TAB,
         keyHint = "Tab",
         dock = "left",
         ignoreLook = true,
         cursorMode = "modmenu",
-        tabs = { "Cheats", "Camera", "Outfits", "Settings", "Bindings" },
-        widthFrac = 0.28,
+        tabs = { "Cheats", "Difficulty", "Camera", "Outfits", "Settings", "Bindings" },
+        widthFrac = 0.322,
     })
 
     local Config = ModMenu.ConfigManager
@@ -33,6 +33,11 @@ else
             binds = "",
             dock = "left",
             persistCheats = false,
+            dmgMode = "normal",
+            staminaScale = "1",
+            penaltyMode = "on",
+            sprintScale = "1",
+            chaseScale = "1",
         },
     })
     Core.LoadUserSettings({
@@ -48,6 +53,18 @@ else
     end)
     Core.SetPersistCheats(Config.Get("persistCheats") == true)
     Core.LoadCheatSnapshot(Config.Get("cheatState"))
+    local dmgSaved = Config.Get("dmgMode") or "normal"
+    if dmgSaved == "off" then
+        dmgSaved = "quarter"
+        Config.Set("dmgMode", dmgSaved)
+    end
+    Core.ApplySavedDifficulty({
+        dmg = dmgSaved,
+        stamina = Config.Get("staminaScale") or "1",
+        penalty = Config.Get("penaltyMode") or "on",
+        sprint = Config.Get("sprintScale") or "1",
+        chase = Config.Get("chaseScale") or "1",
+    })
 
     local function PersistSettings()
         local prev = Core.GetUserSettings()
@@ -207,7 +224,7 @@ else
             {
                 type = "checkbox",
                 id = "cowbell",
-                label = "Cowbell (removed in 1.26)",
+                label = "Cowbell (1.3 unlock, cheat off)",
                 default = false,
                 enabled = false,
                 showState = false,
@@ -216,7 +233,7 @@ else
             {
                 type = "checkbox",
                 id = "follow",
-                label = "Follow (no attack)",
+                label = "Follow (no chase or swat)",
                 default = false,
                 onChange = function(on) Core.SetFollow(on) end,
             },
@@ -269,6 +286,99 @@ else
             },
             { type = "label", id = "flySpeed", label = "Fly speed: 100%" },
             { type = "label", id = "flyHint", label = "WASD move, Space up, X down. [ ] change speed." },
+        },
+    })
+
+    ModMenu.Register({
+        id = "Difficulty",
+        title = "Difficulty",
+        tab = "Difficulty",
+        items = {
+            {
+                type = "label",
+                id = "hint",
+                label = "Stamina and sprint keep cube bonuses.",
+            },
+            {
+                type = "dropdown",
+                id = "dmg",
+                label = "Roku damage",
+                options = {
+                    { label = "Normal", value = "normal" },
+                    { label = "Half", value = "half" },
+                    { label = "Quarter", value = "quarter" },
+                },
+                default = dmgSaved,
+                onChange = function(value)
+                    Core.SetDamageMode(value)
+                    Config.Set("dmgMode", value)
+                end,
+            },
+            {
+                type = "dropdown",
+                id = "staminaScale",
+                label = "Stamina",
+                options = {
+                    { label = "0.5x", value = "0.5" },
+                    { label = "1x", value = "1" },
+                    { label = "1.5x", value = "1.5" },
+                    { label = "2x", value = "2" },
+                    { label = "3x", value = "3" },
+                },
+                default = tostring(Config.Get("staminaScale") or "1"),
+                onChange = function(value)
+                    Core.SetStaminaScale(value)
+                    Config.Set("staminaScale", value)
+                end,
+            },
+            {
+                type = "dropdown",
+                id = "penalty",
+                label = "Empty stamina penalty",
+                options = {
+                    { label = "On", value = "on" },
+                    { label = "Off", value = "off" },
+                },
+                default = Config.Get("penaltyMode") or "on",
+                onChange = function(value)
+                    Core.SetPenaltyMode(value)
+                    Config.Set("penaltyMode", value)
+                end,
+            },
+            {
+                type = "dropdown",
+                id = "sprintScale",
+                label = "Sprint speed",
+                options = {
+                    { label = "0.8x", value = "0.8" },
+                    { label = "0.9x", value = "0.9" },
+                    { label = "1x", value = "1" },
+                    { label = "1.1x", value = "1.1" },
+                    { label = "1.2x", value = "1.2" },
+                },
+                default = tostring(Config.Get("sprintScale") or "1"),
+                onChange = function(value)
+                    Core.SetSprintScale(value)
+                    Config.Set("sprintScale", value)
+                end,
+            },
+            {
+                type = "dropdown",
+                id = "chaseScale",
+                label = "Roku chase speed",
+                options = {
+                    { label = "0.7x", value = "0.7" },
+                    { label = "0.8x", value = "0.8" },
+                    { label = "0.9x", value = "0.9" },
+                    { label = "1x", value = "1" },
+                    { label = "1.1x", value = "1.1" },
+                },
+                default = tostring(Config.Get("chaseScale") or "1"),
+                onChange = function(value)
+                    Core.SetChaseScale(value)
+                    Config.Set("chaseScale", value)
+                end,
+            },
         },
     })
 
@@ -359,7 +469,7 @@ else
         { id = "base", label = "Base Outfit", default = "NUM_SIX", fn = function() Core.ResetOutfit() end },
         { id = "drunk", label = "Max Drunk", default = "NUM_SEVEN", fn = function() Core.MaxDrunk() end },
         { id = "spank", label = "Spankable", default = "NUM_EIGHT", fn = function() Core.ForceSpank() end },
-        { id = "cowbell", label = "Cowbell (removed in 1.26)", default = "", fn = function() end },
+        { id = "cowbell", label = "Cowbell (1.3 unlock, cheat off)", default = "", fn = function() end },
         { id = "follow", label = "Follow", default = "", fn = function() Core.ToggleFollow() end },
         { id = "jump", label = "Jump", default = "SPACE", fn = function() Core.TryJump() end },
         { id = "itemApple", label = "Apple", default = "FIVE", fn = function() Core.PlayItem("apple") end },
@@ -594,12 +704,12 @@ else
         end
     end
 
-    print("[RokuMenu] Overlay ready. v0.3. Press Tab to open.\n")
+    print("[RokuMenu] Overlay ready. v0.4. Press Tab to open.\n")
 end
 
 Core.StartLoops()
 
-print("[RokuMenu] Loaded v0.3. Tab = menu. NumPad keys are ignored while the menu is open.")
+print("[RokuMenu] Loaded v0.4. Tab = menu. NumPad keys are ignored while the menu is open.")
 print("[RokuMenu] Disable GONTrainer while this is enabled.\n")
 
 if type(ModRef) == "table" then

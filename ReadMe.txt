@@ -1,5 +1,5 @@
 ============================================================
-        ROKUMENU v0.3  (GON / UE5 in-game menu)
+        ROKUMENU v0.4  (GON 1.3 / UE5 in-game menu)
 ============================================================
 
 An in-game menu for the same cheats as GONTrainer, plus
@@ -33,15 +33,32 @@ FEATURES
 * Menu on Tab. Dock it from the header (left, right, top,
   bottom). That choice is remembered.
 * Player cheats: god mode, infinite stamina, crouch.
+* Difficulty tab, saved on this PC, no hotkeys. Not part of
+  Keep cheats between loads. Roku damage is Normal, Half, or
+  Quarter. Half gives back half the hit. Quarter leaves one
+  quarter of it. God mode still blocks the hit completely.
+  Apple count stays as it is. Look for "Damage hook installed"
+  in UE4SS.log, then one line per Half or Quarter hit.
+* Stamina 0.5x to 3x of your current bar. Stamina cubes still
+  add 0.2 seconds each. Infinite Stamina fills that bar.
+* Empty stamina penalty On keeps the tired speed at 150.
+  Off matches current walk speed, including crouch.
+* Sprint speed 0.8x to 1.2x of your current sprint. Cubes
+  still add 2 speed each. Walk stays 240. Crouch pauses the
+  sprint choice and uses 70% of the cube sprint, not both.
+* Roku chase speed 0.7x to 1.1x of 480. Freeze still stops
+  her, then puts the chosen speed back.
 * Crouch lowers the view, cuts your speed to 70%, and
   shrinks Roku's head vision box to 10%.
 * Roku: ghost, freeze, 5% slo-mo, max drunk, follow.
-* Cowbell stays on the Cheats tab and is greyed out. GON 1.26
-  removed it for performance. The row stays for when it returns.
+* Cowbell stays on the Cheats tab and is greyed out. GON 1.3
+  uses the bell for the Cowmeat unlock, so this cheat does not
+  press it.
 * Spankable stays on. It is set again every 5 seconds so
   another spank can start after the animation finishes.
 * Follow sets her approach distance very short and turns
-  off the attack boxes, so she walks toward you without swinging.
+  off the chase boxes and the close-range swat capsules, so
+  she walks toward you without swinging or slapping.
 * Item buttons show the hidden prop on her, then play the
   effect: apple, carrot, wine, beer, glowstick, flashlight.
   Default keys are 5 6 7 8 9 0 on the number row.
@@ -53,7 +70,8 @@ FEATURES
 * Ghost drops a chase once and leaves her senses off.
   Drunk and spank still work.
 * Apples 65/66 and notes complete.
-* 13-skin outfit list, same as GONTrainer.
+* 15 outfits. Cowmeat and Dark are at the end of the list.
+  Bunny 1 includes the bunny bra. Sailor 1 uses the Sailor1 row.
 * Camera: hide HUD, freecam, noclip. WASD, Space up, X down.
   [ and ] change fly speed from 10% to 300% of walk speed.
 * Noclip turns collision off while you fly. Turning it off in
@@ -122,11 +140,11 @@ CAMERA:
 OUTFIT LIST
 ------------------------------------------------------------
 1. Base Roku (Top + Pants)
-2. Shirt-Off Roku (censored topless)
+2. Shirt-Off Roku
 3. Bottomless Roku
 4. Bikini Roku
 5. Source Roku
-6. Bunny Roku (1)   no pasties
+6. Bunny Roku (1)
 7. Bunny Roku (2)
 8. Sailor Roku (1)
 9. Sailor Roku (2)
@@ -134,6 +152,8 @@ OUTFIT LIST
 11. Uncensored Full Bare
 12. Uncensored Shirtless
 13. Uncensored Bottomless
+14. Cowmeat Roku
+15. Dark Roku
 
 ------------------------------------------------------------
 INSTALLATION
@@ -189,7 +209,7 @@ You should end up with:
 If GONTrainer is installed, rename or delete:
   ...\ue4ss\Mods\GONTrainer\enabled.txt
 
-Do not copy a second "RokuMenu_v0.3" folder into Mods.
+Do not copy a second "RokuMenu_v0.4" folder into Mods.
 
 
 WRONG (will not load)
@@ -197,7 +217,7 @@ WRONG (will not load)
   Next to GON.exe
   ...\Win64\RokuMenu\
   ...\ue4ss\Mods\RokuMenu\RokuMenu\
-  ...\ue4ss\Mods\RokuMenu_v0.3\...
+  ...\ue4ss\Mods\RokuMenu_v0.4\...
 
 
 LAUNCH
@@ -233,6 +253,25 @@ Only delete shared\ModMenu if no other mod is using it.
 ------------------------------------------------------------
 CHANGELOG
 ------------------------------------------------------------
+v0.4 (GON 1.3):
+* Released. Same build as the v0.4_b playtest, beta tag removed.
+* Built for the v1.3 outfits and the live hit trace.
+* Damage hook retries until the player blueprint is loaded.
+* Roku damage is Normal, Half, or Quarter. Quarter replaced Off.
+* Follow also turns off the close-range swat capsules.
+* Stamina and sprint scales sit on top of stamina cubes.
+* Follow restores the v1.3 distances.
+* Cowmeat and Dark outfits. Sailor 1 uses the Sailor1 row.
+* Menu panel is 15% wider.
+* Stock difficulty rows do not write the game. A speed is
+  written only when the number actually changed.
+
+v0.4 beta:
+* Difficulty tab. Roku damage (Normal / Half / Off) is the
+  beta piece. Stamina, empty-stamina penalty, sprint speed,
+  and chase speed are in the same build for testing.
+* Each hit logs one line in UE4SS.log when damage is Half or Off.
+
 v0.3:
 * Keep cheats between loads. Checkbox on the Cheats tab, no hotkey.
   Off until you turn it on. Cheats are saved when Roku unloads,
