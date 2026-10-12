@@ -1,4 +1,4 @@
--- RokuMenu core v0.5.1: every game read and write lives here.
+-- RokuMenu core v0.5.2: every game read and write lives here.
 -- main.lua is the menu and the hotkeys. Fix this file when the game updates.
 -- GON 1.3. Stamina cubes add 0.2s and 2 sprint speed. Scales sit on top of that.
 

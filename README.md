@@ -12,7 +12,8 @@ Grab a version from **[Releases](https://github.com/mrdude2x/Roku-Menu/releases)
 
 | Version | Date | Download |
 | --- | --- | --- |
-| **v0.5.1** (latest, GON 1.3) | 2026-10-12 | [RokuMenu_v0.5.1.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.5.1/RokuMenu_v0.5.1.zip) |
+| **v0.5.2** (latest, GON 1.3) | 2026-10-12 | [RokuMenu_v0.5.2.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.5.2/RokuMenu_v0.5.2.zip) |
+| v0.5.1 | 2026-10-12 | [RokuMenu_v0.5.1.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.5.1/RokuMenu_v0.5.1.zip) |
 | v0.5 | 2026-10-11 | [RokuMenu_v0.5.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.5/RokuMenu_v0.5.zip) |
 | v0.4 | 2026-10-08 | [RokuMenu_v0.4.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.4/RokuMenu_v0.4.zip) |
 | v0.3 | 2026-10-02 | [RokuMenu_v0.3.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.3/RokuMenu_v0.3.zip) |
@@ -25,7 +26,7 @@ Grab a version from **[Releases](https://github.com/mrdude2x/Roku-Menu/releases)
 - GON: God of Nothing on Steam
 - Windows 11 or 10. On Linux, add this to Steam launch options: `WINEDLLOVERRIDES="dwmapi=n,b" %command%`
 
-The v0.5.1 zip already includes Experimental UE4SS `UE4SS_v3.0.1-1165-g12ec45a0`. The GitHub "latest" 3.0.1 build does not run on Unreal 5.7.
+The v0.5.2 zip already includes Experimental UE4SS `UE4SS_v3.0.1-1165-g12ec45a0`. The GitHub "latest" 3.0.1 build does not run on Unreal 5.7.
 
 ## Credit
 
@@ -35,12 +36,12 @@ UE4SS is by [UE4SS-RE](https://github.com/UE4SS-RE/RE-UE4SS). Copyright (c) 2022
 
 See **[Install_Guide.pdf](Install_Guide.pdf)** in this repo or inside the zip.
 
-1. Extract `RokuMenu_v0.5.1.zip` into `Roku3\Binaries\Win64`, next to `Roku3-Win64-Shipping.exe`.
+1. Extract `RokuMenu_v0.5.2.zip` into `Roku3\Binaries\Win64`, next to `Roku3-Win64-Shipping.exe`.
 2. `dwmapi.dll` and the `ue4ss` folder should sit beside that exe. Click Yes if Windows asks to replace files.
 3. The menu folder must be exactly `ue4ss\Mods\RokuMenu`, with `enabled.txt` left inside it.
 4. NumLock on for numpad keys. Tab opens the menu.
 
-Already have UE4SS and other mods? Do not extract this over that folder. Copy `ue4ss\Mods\RokuMenu` and `ue4ss\Mods\shared\ModMenu` into the Mods folder you already have. Leave `shared\UEHelpers` in place.
+Manual install: put Experimental UE4SS in yourself, then copy `ue4ss\Mods\RokuMenu` and `ue4ss\Mods\shared` from this zip into `Win64\ue4ss\Mods`. Do not copy `mods.txt`. If `shared` already has other mods, copy only `shared\ModMenu` and leave `UEHelpers` in place. The picture steps are in the install guide.
 
 ## Win64 zip
 
@@ -61,4 +62,4 @@ UE4SS-LICENSE.txt
 
 ## Current version
 
-v0.5.1 for GON 1.3. Full feature list is in `ReadMe.txt`.
+v0.5.2 for GON 1.3. Full feature list is in `ReadMe.txt`.

@@ -1,5 +1,5 @@
 ============================================================
-        ROKUMENU v0.5.1  (GON 1.3 / UE5 in-game menu)
+        ROKUMENU v0.5.2  (GON 1.3 / UE5 in-game menu)
 ============================================================
 
 An in-game menu for the same cheats as GONTrainer, plus
@@ -202,16 +202,29 @@ STEP 1 — DROP INTO WIN64
          RokuMenu\
          shared\
 
-Already have UE4SS and other mods? Do not extract this over
-that folder. Copy only these two into the existing Mods folder:
+Already have UE4SS? Do not extract this whole zip over that
+folder. A full extract replaces mods.txt.
+
+Copy these two folders into the existing Mods folder:
   ue4ss\Mods\RokuMenu
-  ue4ss\Mods\shared\ModMenu
-Leave the existing ue4ss\Mods\shared\UEHelpers folder in place.
+  ue4ss\Mods\shared
+If shared already has other mods, do not replace that folder.
+Copy only ue4ss\Mods\shared\ModMenu into the shared folder
+that is already there. Leave UEHelpers in place.
+Do not copy mods.txt.
+
+No UE4SS yet, and you want to install it yourself?
+Download UE4SS_v3.0.1-1165-g12ec45a0.zip.
+Not zDEV. Not Source code.
+Extract dwmapi.dll and the ue4ss folder into Win64.
+Then copy RokuMenu and shared as above.
+
+The picture steps for both installs are in Install_Guide.pdf.
 
 If GONTrainer is installed, rename or delete:
   ...\ue4ss\Mods\GONTrainer\enabled.txt
 
-Do not copy a second "RokuMenu_v0.5.1" folder into Mods.
+Do not copy a second "RokuMenu_v0.5.2" folder into Mods.
 
 
 WRONG (will not load)
@@ -219,7 +232,7 @@ WRONG (will not load)
   Next to GON.exe
   ...\Win64\RokuMenu\
   ...\ue4ss\Mods\RokuMenu\RokuMenu\
-  ...\ue4ss\Mods\RokuMenu_v0.5.1\...
+  ...\ue4ss\Mods\RokuMenu_v0.5.2\...
 
 
 LAUNCH
@@ -255,6 +268,10 @@ Only delete shared\ModMenu if no other mod is using it.
 ------------------------------------------------------------
 CHANGELOG
 ------------------------------------------------------------
+v0.5.2:
+* Install guide covers the easy Win64 drop-in first, then
+  a manual install of experimental UE4SS and Roku Menu.
+
 v0.5.1:
 * Win64 drop-in. Experimental UE4SS is included.
   Build UE4SS_v3.0.1-1165-g12ec45a0.
