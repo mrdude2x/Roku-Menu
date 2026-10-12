@@ -1,0 +1,15 @@
+Roku Menu
+By PerfectZero (mrdude2x)
+https://github.com/mrdude2x/Roku-Menu
+
+The Win64 download also includes UE4SS so the menu can run.
+UE4SS is a separate project by UE4SS-RE.
+Copyright (c) 2022 Narknon
+License: MIT. Full text: UE4SS-LICENSE.txt and, in the Win64 zip, ue4ss/LICENSE.
+Bundled build: UE4SS_v3.0.1-1165-g12ec45a0
+Downloaded 2026-10-12 from:
+https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest
+SHA256: d51512869bde8c32a1ebd6732a01fbb1343e6b3e0fb9cd0d8a9b1841b68cba97
+
+Roku Menu's own files are ue4ss/Mods/RokuMenu and ue4ss/Mods/shared/ModMenu.
+UE4SS's own files are everything else in that download.

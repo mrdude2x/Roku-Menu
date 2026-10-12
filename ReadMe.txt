@@ -1,5 +1,5 @@
 ============================================================
-        ROKUMENU v0.5  (GON 1.3 / UE5 in-game menu)
+        ROKUMENU v0.5.1  (GON 1.3 / UE5 in-game menu)
 ============================================================
 
 An in-game menu for the same cheats as GONTrainer, plus
@@ -167,58 +167,51 @@ OUTFIT LIST
 ------------------------------------------------------------
 INSTALLATION
 ------------------------------------------------------------
-Two steps. UE4SS first, then drop this mod into Mods.
+This zip is a Win64 drop-in. It already contains Experimental
+UE4SS (UE4SS_v3.0.1-1165-g12ec45a0) and Roku Menu.
+
+UE4SS is made by UE4SS-RE. Copyright (c) 2022 Narknon.
+It is MIT licensed. See UE4SS-LICENSE.txt and ue4ss\LICENSE.
+See CREDITS.txt.
 
 Stable UE4SS 3.0.1 from GitHub "latest" will NOT work on this
-game (Unreal 5.7). Use Experimental.
+game (Unreal 5.7). This zip uses the experimental build above.
 
 
-STEP 1 — EXPERIMENTAL UE4SS
----------------------------
+STEP 1 — DROP INTO WIN64
+------------------------
 1. Steam: Library -> GON: God of Nothing -> gear / right-click
    -> Manage -> Browse local files. You will see GON.exe.
-   That is the game root. Do not put UE4SS here.
+   That is the game root. Do not put these files here.
 
 2. Open:  Roku3 -> Binaries -> Win64
    You must see Roku3-Win64-Shipping.exe.
 
-3. Download Experimental UE4SS (newest date on the page):
-   https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest
-
-   Use ONE of these (numbers change every build):
-     UE4SS_v3.0.1-XXXX-g........zip      quiet player install
-     zDEV-UE4SS_v3.0.1-XXXX-g........zip optional debug console
-
-   Skip "Source code" zips. Skip old xinput zips.
-
-4. Open the zip until you see dwmapi.dll and a ue4ss folder
-   together. Copy BOTH into that Win64 folder, next to
-   Roku3-Win64-Shipping.exe.
+3. Extract this zip into that Win64 folder.
+   If Windows asks to replace files, click Yes.
+   dwmapi.dll must end up next to the exe, and ue4ss
+   must be a folder next to the exe.
 
    Win64 should now look like:
      Roku3-Win64-Shipping.exe
      dwmapi.dll
      ue4ss\
        UE4SS.dll
+       LICENSE
        Mods\
+         RokuMenu\
+         shared\
 
-
-STEP 2 — DROP ROKUMENU INTO MODS
---------------------------------
-Copy the contents of this archive into:
-
-  ...\GON God Of Nothing\Roku3\Binaries\Win64\ue4ss\Mods\
-
-You should end up with:
-  ...\ue4ss\Mods\shared\ModMenu\ModMenu.lua
-  ...\ue4ss\Mods\RokuMenu\enabled.txt
-  ...\ue4ss\Mods\RokuMenu\Scripts\main.lua
-  ...\ue4ss\Mods\RokuMenu\Scripts\core.lua
+Already have UE4SS and other mods? Do not extract this over
+that folder. Copy only these two into the existing Mods folder:
+  ue4ss\Mods\RokuMenu
+  ue4ss\Mods\shared\ModMenu
+Leave the existing ue4ss\Mods\shared\UEHelpers folder in place.
 
 If GONTrainer is installed, rename or delete:
   ...\ue4ss\Mods\GONTrainer\enabled.txt
 
-Do not copy a second "RokuMenu_v0.5" folder into Mods.
+Do not copy a second "RokuMenu_v0.5.1" folder into Mods.
 
 
 WRONG (will not load)
@@ -226,7 +219,7 @@ WRONG (will not load)
   Next to GON.exe
   ...\Win64\RokuMenu\
   ...\ue4ss\Mods\RokuMenu\RokuMenu\
-  ...\ue4ss\Mods\RokuMenu_v0.5\...
+  ...\ue4ss\Mods\RokuMenu_v0.5.1\...
 
 
 LAUNCH
@@ -262,6 +255,12 @@ Only delete shared\ModMenu if no other mod is using it.
 ------------------------------------------------------------
 CHANGELOG
 ------------------------------------------------------------
+v0.5.1:
+* Win64 drop-in. Experimental UE4SS is included.
+  Build UE4SS_v3.0.1-1165-g12ec45a0.
+* UE4SS credit and MIT license are in CREDITS.txt
+  and UE4SS-LICENSE.txt. The same license is in ue4ss\LICENSE.
+
 v0.5:
 * Tabs size to their names so they no longer crowd each other.
 * Menu is a bit wider.

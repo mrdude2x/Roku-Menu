@@ -9,7 +9,7 @@ if not okMenu or not ModMenu then
     print("[RokuMenu] Hotkeys still work (NumPad, NumLock ON).\n")
 else
     ModMenu.Init({
-        title = "RokuMenu v0.5",
+        title = "RokuMenu v0.5.1",
         instanceId = "RokuMenu",
         key = Key.TAB,
         keyHint = "Tab",
@@ -795,12 +795,12 @@ else
         end
     end
 
-    print("[RokuMenu] Overlay ready. v0.5. Press Tab to open.\n")
+    print("[RokuMenu] Overlay ready. v0.5.1. Press Tab to open.\n")
 end
 
 Core.StartLoops()
 
-print("[RokuMenu] Loaded v0.5. Tab = menu. NumPad keys are ignored while the menu is open.")
+print("[RokuMenu] Loaded v0.5.1. Tab = menu. NumPad keys are ignored while the menu is open.")
 print("[RokuMenu] Disable GONTrainer while this is enabled.\n")
 
 if type(ModRef) == "table" then
