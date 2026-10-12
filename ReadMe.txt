@@ -1,5 +1,5 @@
 ============================================================
-        ROKUMENU v0.4  (GON 1.3 / UE5 in-game menu)
+        ROKUMENU v0.5  (GON 1.3 / UE5 in-game menu)
 ============================================================
 
 An in-game menu for the same cheats as GONTrainer, plus
@@ -72,16 +72,25 @@ FEATURES
 * Apples 65/66 and notes complete.
 * 15 outfits. Cowmeat and Dark are at the end of the list.
   Bunny 1 includes the bunny bra. Sailor 1 uses the Sailor1 row.
-* Camera: hide HUD, freecam, noclip. WASD, Space up, X down.
-  [ and ] change fly speed from 10% to 300% of walk speed.
+* Camera: hide HUD, freecam, noclip. Hide HUD also hides
+  the circles that appear over nearby items. WASD, Space up,
+  X down. [ and ] change fly speed from 10% to 300% of walk speed.
 * Noclip turns collision off while you fly. Turning it off in
   open air drops you. Turning it off inside a wall leaves it
   on and does not move you. Crouch is blocked while it is on.
 * Bunny 1 and Bunny 2 no longer paint the bunny material
   over her eyes and teeth.
 * Settings: mouse, music, and effects. Type a number.
-  Closing the menu saves it and applies it. Values are put
-  back when Roku loads on the main menu.
+  A pause applies it. Closing the menu saves it again.
+  Music and effects use the game sound mix. 0 is mute, 1 is full.
+* Graphics, under Settings. Each row is Low, Medium, High,
+  Epic, or Cinematic and applies when you pick it. The rows
+  follow the game if the Quality menu changes them.
+  Force these on map load starts off and has no hotkey.
+  It saves the rows and puts them back about 2 seconds
+  after a map loads. The game settings screen can still
+  overwrite them until that next map. Fog high/low still
+  follows the overall Quality choice until the next map.
 * Keep cheats between loads is on the Cheats tab. It has
   no hotkey and starts off. While it is on, cheats are saved
   when Roku unloads, turned off, then put back the next time
@@ -209,7 +218,7 @@ You should end up with:
 If GONTrainer is installed, rename or delete:
   ...\ue4ss\Mods\GONTrainer\enabled.txt
 
-Do not copy a second "RokuMenu_v0.4" folder into Mods.
+Do not copy a second "RokuMenu_v0.5" folder into Mods.
 
 
 WRONG (will not load)
@@ -217,7 +226,7 @@ WRONG (will not load)
   Next to GON.exe
   ...\Win64\RokuMenu\
   ...\ue4ss\Mods\RokuMenu\RokuMenu\
-  ...\ue4ss\Mods\RokuMenu_v0.4\...
+  ...\ue4ss\Mods\RokuMenu_v0.5\...
 
 
 LAUNCH
@@ -253,6 +262,25 @@ Only delete shared\ModMenu if no other mod is using it.
 ------------------------------------------------------------
 CHANGELOG
 ------------------------------------------------------------
+v0.5:
+* Tabs size to their names so they no longer crowd each other.
+* Menu is a bit wider.
+* Music and effects apply through the game sound mix.
+  Music no longer depends on a settings object that was not loaded.
+* Graphics section on Settings. Per-group quality, applied live.
+* Graphics rows follow the game Quality menu and update
+  when that menu changes them.
+* Force these on map load. Off by default, no hotkey.
+  Saves the graphics rows and puts them back after a map loads.
+* Hide HUD also hides the item circles. Turning it off
+  fades those circles back in. It does not set their
+  visibility, which crashed the game.
+* Freecam starts where the player is looking. It no longer
+  opens at the world origin.
+* Freecam turns Ghost on so Roku does not chase. Turning
+  freecam off turns that Ghost off. A Ghost that was already
+  on stays on. Ghost cannot be turned off during freecam.
+
 v0.4 (GON 1.3):
 * Released. Same build as the v0.4_b playtest, beta tag removed.
 * Built for the v1.3 outfits and the live hit trace.

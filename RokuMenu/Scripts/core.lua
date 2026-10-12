@@ -1,4 +1,4 @@
--- RokuMenu core v0.4: every game read and write lives here.
+-- RokuMenu core v0.5: every game read and write lives here.
 -- main.lua is the menu and the hotkeys. Fix this file when the game updates.
 -- GON 1.3. Stamina cubes add 0.2s and 2 sprint speed. Scales sit on top of that.
 
@@ -1044,28 +1044,61 @@ function M.SetStamina(on)
     end)
 end
 
+-- Freecam turns Ghost on, and turns it back off only if Ghost was off before.
+local ghostHeldByFreecam = false
+
+local function ApplyGhostNow(on)
+    on = not not on
+    if on and isFollow then
+        isFollow = false
+        local player = GetPlayerPawn()
+        local d = followSaved or StockDistances()
+        if player and player:IsValid() then
+            pcall(function() player.EasyDistanceCheckA = d.a end)
+            pcall(function() player.EasyDistanceCheckB = d.b end)
+            pcall(function() player.HardDistanceCheckA = d.c end)
+            pcall(function() player.HardDistanceCheckB = d.d end)
+        end
+        print("[RokuMenu] Follow OFF because Ghost was turned on.\n")
+    end
+    isGhostMode = on
+    local roku = GetRoku()
+    if roku then
+        ApplyGhostState(roku, isGhostMode or isRokuFrozen)
+    end
+    print(string.format("[RokuMenu] Ghost Mode: %s\n", isGhostMode and "ON" or "OFF"))
+    notify()
+end
+
+local function HoldGhostForFreecam()
+    if isGhostMode then
+        ghostHeldByFreecam = false
+        return
+    end
+    ghostHeldByFreecam = true
+    print("[RokuMenu] Ghost ON for freecam\n")
+    ApplyGhostNow(true)
+end
+
+local function ReleaseFreecamGhost()
+    if not ghostHeldByFreecam then return end
+    ghostHeldByFreecam = false
+    print("[RokuMenu] Ghost OFF with freecam\n")
+    ApplyGhostNow(false)
+end
+
 function M.SetGhost(on)
     RunOnGameThread(function()
         on = not not on
-        if on and isFollow then
-            isFollow = false
-            local player = GetPlayerPawn()
-            local d = followSaved or StockDistances()
-            if player and player:IsValid() then
-                pcall(function() player.EasyDistanceCheckA = d.a end)
-                pcall(function() player.EasyDistanceCheckB = d.b end)
-                pcall(function() player.HardDistanceCheckA = d.c end)
-                pcall(function() player.HardDistanceCheckB = d.d end)
-            end
-            print("[RokuMenu] Follow OFF because Ghost was turned on.\n")
+        if not on and isFreecam then
+            print("[RokuMenu] Ghost stays on while freecam is on\n")
+            notify()
+            return
         end
-        isGhostMode = on
-        local roku = GetRoku()
-        if roku then
-            ApplyGhostState(roku, isGhostMode or isRokuFrozen)
+        if not on or isFreecam then
+            ghostHeldByFreecam = false
         end
-        print(string.format("[RokuMenu] Ghost Mode: %s\n", isGhostMode and "ON" or "OFF"))
-        notify()
+        ApplyGhostNow(on)
     end)
 end
 
@@ -1138,6 +1171,7 @@ function M.SetUIHidden(on)
             isUiHidden = not isUiHidden
         else
             print(string.format("[RokuMenu] HUD: %s\n", isUiHidden and "HIDDEN" or "VISIBLE"))
+            MaintainItemPrompts()
         end
         notify()
     end)
@@ -1453,7 +1487,13 @@ local function DropChaseOnceForFollow(roku)
 end
 
 function M.SetFollow(on)
-    isFollow = not not on
+    on = not not on
+    if on and isFreecam then
+        print("[RokuMenu] Follow blocked while freecam is on\n")
+        notify()
+        return
+    end
+    isFollow = on
     RunOnGameThread(function()
         local player = GetPlayerPawn()
         local roku = GetRoku()
@@ -1464,6 +1504,7 @@ function M.SetFollow(on)
         if isFollow then
             if isGhostMode then
                 isGhostMode = false
+                ghostHeldByFreecam = false
                 print("[RokuMenu] Ghost OFF because Follow was turned on.\n")
             end
             if followSaved == nil then
@@ -1506,15 +1547,231 @@ local userSettings = {
     sfx = 1.0,
 }
 -- Mouse, music, and effects. A blank number is ignored and not written to the game.
-local function GetSettingsObject()
-    local list = FindAllOf("SG_settings_C") or {}
+-- Music used to write a save object that is not in memory, so it never applied.
+-- Effects used to set the engine SFX class and the game's SC_SoundFX class together.
+local soundMixPushed = false
+local soundBaseRestored = false
+
+local function ObjectName(obj)
+    local full = ""
+    pcall(function() full = obj:GetFullName() end)
+    return string.lower(full)
+end
+
+-- Item circles are WIDGET_CIRCLE / WIDGET_DOT, not part of UI_Horror.
+-- Fade them and hide the component. Do not call SetVisibility on these
+-- widgets: putting them back to SelfHitTestInvisible crashed the game.
+local promptsHidden = false
+local promptTracked = {}
+local promptSeen = {}
+
+local function ObjectAddress(obj)
+    local addr = nil
+    local ok = pcall(function() addr = obj:GetAddress() end)
+    if ok and type(addr) == "number" then return string.format("%x", addr) end
+    local name = ObjectName(obj)
+    if name ~= "" then return name end
+    return nil
+end
+
+local function MarkOnce(obj)
+    local addr = ObjectAddress(obj)
+    if not addr or promptSeen[addr] then return false end
+    promptSeen[addr] = true
+    return true
+end
+
+local function OuterComponent(widget)
+    local obj = widget
+    for _ = 1, 5 do
+        if not obj or not obj.IsValid or not obj:IsValid() then return nil end
+        if string.find(ObjectName(obj), "widgetcomponent", 1, true) then return obj end
+        local outer = nil
+        local ok = pcall(function() outer = obj:GetOuter() end)
+        if not ok or outer == nil or outer == obj then return nil end
+        obj = outer
+    end
+    return nil
+end
+
+local function HideCircleWidget(widget)
+    if not widget or not widget.IsValid or not widget:IsValid() then return end
+    if string.find(ObjectName(widget), "default__", 1, true) then return end
+    if not MarkOnce(widget) then return end
+    local opacity = 1
+    pcall(function() opacity = widget:GetRenderOpacity() end)
+    pcall(function() widget:SetRenderOpacity(0) end)
+    local comp = OuterComponent(widget)
+    local compWas = nil
+    if comp and comp:IsValid() and MarkOnce(comp) then
+        local was = false
+        pcall(function() was = comp.bHiddenInGame == true end)
+        compWas = was
+        pcall(function() comp:SetHiddenInGame(true) end)
+    end
+    promptTracked[#promptTracked + 1] = {
+        widget = widget,
+        opacity = opacity,
+        comp = comp,
+        compWas = compWas,
+    }
+end
+
+local function ApplyPromptHide()
+    local names = { "WIDGET_CIRCLE_C", "WIDGET_DOT_C" }
+    for c = 1, #names do
+        local list = nil
+        local ok = pcall(function() list = FindAllOf(names[c]) end)
+        if ok and type(list) == "table" then
+            for i = 1, #list do
+                HideCircleWidget(list[i])
+            end
+        end
+    end
+end
+
+local function RestoreItemPrompts()
+    for i = 1, #promptTracked do
+        local entry = promptTracked[i]
+        local widget = entry.widget
+        if widget and widget.IsValid and widget:IsValid() then
+            pcall(function() widget:SetRenderOpacity(entry.opacity or 1) end)
+        end
+        local comp = entry.comp
+        if comp and entry.compWas ~= nil and comp.IsValid and comp:IsValid() then
+            pcall(function() comp:SetHiddenInGame(entry.compWas) end)
+        end
+    end
+    promptTracked = {}
+    promptSeen = {}
+end
+
+function MaintainItemPrompts()
+    if isUiHidden then
+        ApplyPromptHide()
+        if not promptsHidden then
+            promptsHidden = true
+            print(string.format("[RokuMenu] Item circles hidden (%d)\n", #promptTracked))
+        end
+    elseif promptsHidden then
+        RestoreItemPrompts()
+        promptsHidden = false
+        print("[RokuMenu] Item circles restored\n")
+    end
+end
+
+local function FindLive(className)
+    local list = FindAllOf(className) or {}
     for i = 1, #list do
         local obj = list[i]
-        if obj and obj:IsValid() and not string.find(obj:GetFullName(), "Default__") then
+        if obj and obj:IsValid() and not string.find(ObjectName(obj), "default__", 1, true) then
             return obj
         end
     end
     return nil
+end
+
+local function FindLoaded(path)
+    if not StaticFindObject then return nil end
+    local obj = nil
+    local ok = pcall(function() obj = StaticFindObject(path) end)
+    if ok and obj and obj.IsValid and obj:IsValid() then return obj end
+    return nil
+end
+
+local function FindOrLoad(path)
+    local obj = FindLoaded(path)
+    if obj then return obj end
+    if LoadAsset then
+        local loaded = nil
+        local ok = pcall(function() loaded = LoadAsset(path) end)
+        if ok and loaded and loaded.IsValid and loaded:IsValid() then return loaded end
+    end
+    return nil
+end
+
+local function GetHelpers()
+    local ueh = nil
+    pcall(function() ueh = require("UEHelpers.UEHelpers") end)
+    if not ueh then
+        pcall(function() ueh = require("UEHelpers") end)
+    end
+    return ueh
+end
+
+local function GetGameplayStatics()
+    local ueh = GetHelpers()
+    if not ueh or not ueh.GetGameplayStatics then return nil end
+    local gs = nil
+    local ok = pcall(function() gs = ueh.GetGameplayStatics() end)
+    if ok and gs and gs.IsValid and gs:IsValid() then return gs end
+    return nil
+end
+
+local function WorldContext()
+    local pc = FindFirstOf("PlayerController")
+    if pc and pc:IsValid() and not string.find(ObjectName(pc), "default__", 1, true) then
+        return pc
+    end
+    return GetPlayerPawn()
+end
+
+local function FindSoundClass(substr)
+    local list = FindAllOf("SoundClass") or {}
+    for i = 1, #list do
+        local sc = list[i]
+        if sc and sc:IsValid() and string.find(ObjectName(sc), substr, 1, true) then
+            return sc
+        end
+    end
+    return nil
+end
+
+local function SetClassVolume(sc, volume)
+    if not sc or volume == nil then return false end
+    local ok = pcall(function() sc.Properties.Volume = volume end)
+    return ok == true
+end
+
+-- Undo the old write that pinned engine SFX and the game classes to the slider.
+local function RestoreSoundBases()
+    if soundBaseRestored then return end
+    soundBaseRestored = true
+    SetClassVolume(FindSoundClass("/enginesounds/sfx.sfx"), 1.0)
+    SetClassVolume(FindSoundClass("/enginesounds/music.music"), 1.0)
+    SetClassVolume(FindSoundClass("sc_soundfx"), 1.0)
+end
+
+local function ApplyOneSound(gs, world, mix, classObj, volume)
+    if volume == nil then return "skip" end
+    if gs and world and mix and classObj then
+        local ok = pcall(function()
+            gs:SetSoundMixClassOverride(world, mix, classObj, volume, 1.0, 0.0, false)
+        end)
+        if ok then return "mix" end
+    end
+    if SetClassVolume(classObj, volume) then return "class" end
+    return "no"
+end
+
+local function WriteSettingsSave(mouse, music, sfx)
+    local gs = GetGameplayStatics()
+    if not gs then return false end
+    local save = nil
+    local loaded = pcall(function()
+        if gs:DoesSaveGameExist("SettingsSlot", 0) then
+            save = gs:LoadGameFromSlot("SettingsSlot", 0)
+        end
+    end)
+    if not loaded or not save or not save.IsValid or not save:IsValid() then
+        return false
+    end
+    if mouse ~= nil then pcall(function() save.MouseSen = mouse end) end
+    if music ~= nil then pcall(function() save.MusicVolume = music end) end
+    if sfx ~= nil then pcall(function() save.EffectsVolume = sfx end) end
+    local stored = false
+    pcall(function() stored = gs:SaveGameToSlot(save, "SettingsSlot", 0) end)
+    return stored == true
 end
 
 function M.ApplyUserSettings()
@@ -1526,47 +1783,232 @@ function M.ApplyUserSettings()
             local ok = pcall(function() player.mouseSEN = userSettings.mouse end)
             mouseSet = ok
         end
-        local sg = GetSettingsObject()
-        if sg then
-            pcall(function() sg.mouseSEN = userSettings.mouse end)
-        end
         local gi = GetGameInstance()
         if gi then
             pcall(function() gi.MouseSensitivity = userSettings.mouse end)
         end
     end
-    local musicSet = false
-    if userSettings.music ~= nil then
-        local sg = GetSettingsObject()
-        if sg then
-            local ok = pcall(function() sg.MusicVolume = userSettings.music end)
-            musicSet = ok
-        end
+
+    RestoreSoundBases()
+    local gs = GetGameplayStatics()
+    local world = WorldContext()
+    local mix = FindOrLoad("/Game/Variant_Horror/Menus/SoundMix_Main.SoundMix_Main")
+        or FindOrLoad("/Game/Variant_Horror/Menus/SoundMix_Main")
+    local musicClass = FindLoaded("/Engine/EngineSounds/Music.Music")
+        or FindSoundClass("/enginesounds/music.music")
+    local fxClass = FindLoaded("/Game/MinimalisticMenu/Audio/SoundClass/SC_SoundFX.SC_SoundFX")
+        or FindSoundClass("sc_soundfx")
+    local musicHow = ApplyOneSound(gs, world, mix, musicClass, userSettings.music)
+    local fxHow = ApplyOneSound(gs, world, mix, fxClass, userSettings.sfx)
+    if mix and gs and world and not soundMixPushed and (musicHow == "mix" or fxHow == "mix") then
+        local pushed = pcall(function() gs:PushSoundMixModifier(world, mix) end)
+        if pushed then soundMixPushed = true end
     end
-    local effectsSet = 0
-    if userSettings.sfx ~= nil then
-        local list = FindAllOf("SoundClass") or {}
-        for i = 1, #list do
-            local sc = list[i]
-            if sc and sc:IsValid() then
-                local full = ""
-                pcall(function() full = sc:GetFullName() end)
-                local low = string.lower(full)
-                local isEffects = string.find(low, "/enginesounds/sfx.sfx", 1, true)
-                    or string.find(low, "sc_soundfx", 1, true)
-                if isEffects then
-                    local ok = pcall(function() sc.Properties.Volume = userSettings.sfx end)
-                    if ok then effectsSet = effectsSet + 1 end
-                end
+    local saved = WriteSettingsSave(userSettings.mouse, userSettings.music, userSettings.sfx)
+    print(string.format(
+        "[RokuMenu] Applied mouse=%s (%s) music=%s (%s) effects=%s (%s) save=%s\n",
+        tostring(userSettings.mouse), mouseSet and "ok" or "no pawn",
+        tostring(userSettings.music), musicHow,
+        tostring(userSettings.sfx), fxHow,
+        saved and "ok" or "no"
+    ))
+end
+
+-- Same steps as the game Quality dropdown, one group at a time.
+-- 0 Low, 1 Medium, 2 High, 3 Epic, 4 Cinematic.
+M.QualityOptions = {
+    { label = "Low", value = "0" },
+    { label = "Medium", value = "1" },
+    { label = "High", value = "2" },
+    { label = "Epic", value = "3" },
+    { label = "Cinematic", value = "4" },
+}
+M.GraphicsRows = {
+    { id = "gfxView", label = "View distance", set = "SetViewDistanceQuality", get = "GetViewDistanceQuality", cmd = "sg.ViewDistanceQuality" },
+    { id = "gfxAa", label = "Anti-aliasing", set = "SetAntiAliasingQuality", get = "GetAntiAliasingQuality", cmd = "sg.AntiAliasingQuality" },
+    { id = "gfxShadow", label = "Shadows", set = "SetShadowQuality", get = "GetShadowQuality", cmd = "sg.ShadowQuality" },
+    { id = "gfxGi", label = "Global illumination", set = "SetGlobalIlluminationQuality", get = "GetGlobalIlluminationQuality", cmd = "sg.GlobalIlluminationQuality" },
+    { id = "gfxRefl", label = "Reflections", set = "SetReflectionQuality", get = "GetReflectionQuality", cmd = "sg.ReflectionQuality" },
+    { id = "gfxPp", label = "Post process", set = "SetPostProcessQuality", get = "GetPostProcessQuality", cmd = "sg.PostProcessQuality" },
+    { id = "gfxTex", label = "Textures", set = "SetTextureQuality", get = "GetTextureQuality", cmd = "sg.TextureQuality" },
+    { id = "gfxFx", label = "Effects", set = "SetEffectsQuality", get = "GetEffectsQuality", cmd = "sg.EffectsQuality" },
+    { id = "gfxFoliage", label = "Foliage", set = "SetFoliageQuality", get = "GetFoliageQuality", cmd = "sg.FoliageQuality" },
+    { id = "gfxShade", label = "Shading", set = "SetShadingQuality", get = "GetShadingQuality", cmd = "sg.ShadingQuality" },
+    { id = "gfxLand", label = "Landscape", set = "SetLandscapeQuality", get = "GetLandscapeQuality", cmd = "sg.LandscapeQuality" },
+}
+
+local function GraphicsRow(id)
+    for i = 1, #M.GraphicsRows do
+        if M.GraphicsRows[i].id == id then return M.GraphicsRows[i] end
+    end
+    return nil
+end
+
+local function GetGameUserSettings()
+    return FindLive("GameUserSettings")
+end
+
+local function ExecConsole(cmd)
+    local world = WorldContext()
+    local ueh = GetHelpers()
+    local lib = nil
+    if ueh and ueh.GetKismetSystemLibrary then
+        pcall(function() lib = ueh.GetKismetSystemLibrary() end)
+    end
+    if lib and lib.IsValid and lib:IsValid() and world then
+        local ok = pcall(function() lib:ExecuteConsoleCommand(world, cmd, world) end)
+        if ok then return true end
+    end
+    if world and world.ConsoleCommand then
+        local ok = pcall(function() world:ConsoleCommand(cmd, true) end)
+        if ok then return true end
+    end
+    return false
+end
+
+local function ReadGraphicsRaw(id)
+    local row = GraphicsRow(id)
+    if not row then return nil end
+    local gus = GetGameUserSettings()
+    if not gus then return nil end
+    local value = nil
+    local ok = pcall(function() value = gus[row.get](gus) end)
+    local n = ok and tonumber(value) or nil
+    if n == nil then return nil end
+    return tostring(math.floor(n + 0.5))
+end
+
+function M.ReadGraphicsLevel(id)
+    return ReadGraphicsRaw(id) or "2"
+end
+
+-- Live rows follow the engine, including the game Quality menu.
+-- gfxWanted is the snapshot put back on map load when the toggle is on.
+local gfxForce = false
+local gfxWanted = {}
+local gfxSeen = {}
+local gfxStore = nil
+local gfxApplying = false
+local gfxQuiet = false
+
+local function SaveGraphicsPrefs()
+    if not gfxStore then return end
+    local copy = {}
+    for i = 1, #M.GraphicsRows do
+        local id = M.GraphicsRows[i].id
+        if gfxWanted[id] ~= nil then copy[id] = gfxWanted[id] end
+    end
+    gfxStore(gfxForce, copy)
+end
+
+function M.SetGraphicsLevel(id, value)
+    local row = GraphicsRow(id)
+    local n = tonumber(value)
+    if not row or n == nil then return false end
+    n = math.floor(n + 0.5)
+    if n < 0 then n = 0 end
+    if n > 4 then n = 4 end
+    local gus = GetGameUserSettings()
+    local how = "no"
+    if gus then
+        local ok = pcall(function() gus[row.set](gus, n) end)
+        if ok then how = "settings" end
+    end
+    if how == "no" and ExecConsole(row.cmd .. " " .. tostring(n)) then
+        how = "console"
+    end
+    if gus and how ~= "no" and not gfxApplying then
+        pcall(function() gus:ApplyNonResolutionSettings() end)
+        pcall(function() gus:SaveSettings() end)
+    end
+    local text = tostring(n)
+    gfxWanted[id] = text
+    gfxSeen[id] = text
+    if not gfxApplying then SaveGraphicsPrefs() end
+    if not gfxQuiet then
+        print(string.format("[RokuMenu] Graphics %s=%d (%s)\n", row.label, n, how))
+    end
+    return how ~= "no"
+end
+
+function M.SetGraphicsStore(fn)
+    gfxStore = fn
+end
+
+function M.LoadGraphicsPrefs(saved)
+    if type(saved) ~= "table" then return end
+    gfxForce = saved.force == true
+    if type(saved.wanted) == "table" then
+        for i = 1, #M.GraphicsRows do
+            local id = M.GraphicsRows[i].id
+            if saved.wanted[id] ~= nil then
+                gfxWanted[id] = tostring(saved.wanted[id])
             end
         end
     end
-    print(string.format(
-        "[RokuMenu] Applied mouse=%s (%s) music=%s (%s) effects=%s (%d classes)\n",
-        tostring(userSettings.mouse), mouseSet and "ok" or "no pawn",
-        tostring(userSettings.music), musicSet and "ok" or "no settings object",
-        tostring(userSettings.sfx), effectsSet
-    ))
+end
+
+function M.CaptureGraphicsWanted()
+    for i = 1, #M.GraphicsRows do
+        local id = M.GraphicsRows[i].id
+        local live = ReadGraphicsRaw(id)
+        if live ~= nil then
+            gfxWanted[id] = live
+            gfxSeen[id] = live
+        end
+    end
+    SaveGraphicsPrefs()
+end
+
+function M.SetGraphicsForce(on)
+    gfxForce = not not on
+    if gfxForce then
+        M.CaptureGraphicsWanted()
+    else
+        SaveGraphicsPrefs()
+    end
+    print(string.format("[RokuMenu] Force graphics on map load: %s\n", gfxForce and "ON" or "OFF"))
+end
+
+function M.ApplySavedGraphics()
+    if not gfxForce then return end
+    gfxApplying = true
+    gfxQuiet = true
+    local applied = 0
+    for i = 1, #M.GraphicsRows do
+        local id = M.GraphicsRows[i].id
+        if gfxWanted[id] ~= nil and M.SetGraphicsLevel(id, gfxWanted[id]) then
+            applied = applied + 1
+        end
+    end
+    local gus = GetGameUserSettings()
+    if gus and applied > 0 then
+        pcall(function() gus:ApplyNonResolutionSettings() end)
+        pcall(function() gus:SaveSettings() end)
+    end
+    gfxQuiet = false
+    gfxApplying = false
+    print(string.format("[RokuMenu] Graphics forced after map load (%d rows)\n", applied))
+    notify()
+end
+
+function M.PollGraphics()
+    if gfxApplying then return false end
+    local changed = false
+    for i = 1, #M.GraphicsRows do
+        local row = M.GraphicsRows[i]
+        local live = ReadGraphicsRaw(row.id)
+        if live ~= nil then
+            local prev = gfxSeen[row.id]
+            gfxSeen[row.id] = live
+            if prev ~= nil and prev ~= live then
+                changed = true
+                print(string.format("[RokuMenu] Game changed %s %s -> %s\n", row.label, prev, live))
+            end
+        end
+    end
+    if changed then notify() end
+    return changed
 end
 
 function M.LoadUserSettings(saved)
@@ -1949,6 +2391,7 @@ function M.SetNoclip(on)
         if on and isFreecam then
             isFreecam = false
             if player then StopFreecam(player) end
+            ReleaseFreecamGhost()
         end
         if not on then
             isNoclip = false
@@ -2019,6 +2462,18 @@ function M.SetFreecam(on)
             savedPawnLoc = CopyVec(pawnLoc)
             savedCamRel = CopyVec(cam.RelativeLocation)
             savedCamRot = CopyRot(cam.RelativeRotation)
+            local worldLoc = nil
+            pcall(function() worldLoc = cam:K2_GetComponentLocation() end)
+            worldLoc = CopyVec(worldLoc) or savedPawnLoc
+            local worldRot = nil
+            pcall(function() worldRot = cam:K2_GetComponentRotation() end)
+            worldRot = CopyRot(worldRot)
+            if not worldRot then
+                local pc = FindFirstOf("PlayerController")
+                if pc and pc:IsValid() then
+                    pcall(function() worldRot = CopyRot(pc.ControlRotation) end)
+                end
+            end
             if savedCamRel then
                 print(string.format(
                     "[RokuMenu] Camera saved %.1f %.1f %.1f\n",
@@ -2026,9 +2481,23 @@ function M.SetFreecam(on)
                 ))
             end
             pcall(function() cam:SetAbsolute(true, true, false) end)
+            if worldLoc then
+                pcall(function() cam.RelativeLocation = worldLoc end)
+                pcall(function() cam:K2_SetRelativeLocation(worldLoc, false, {}, true) end)
+                print(string.format(
+                    "[RokuMenu] Freecam at %.1f %.1f %.1f\n",
+                    worldLoc.X, worldLoc.Y, worldLoc.Z
+                ))
+            end
+            if worldRot then
+                pcall(function() cam.RelativeRotation = worldRot end)
+                pcall(function() cam:K2_SetRelativeRotation(worldRot, false, {}, true) end)
+            end
+            HoldGhostForFreecam()
             print("[RokuMenu] Freecam ON. WASD, Space up, X down. Body stays put.\n")
         else
             StopFreecam(player)
+            ReleaseFreecamGhost()
             print("[RokuMenu] Freecam OFF\n")
         end
         notify()
@@ -2554,7 +3023,7 @@ local function CaptureCheats()
     return {
         god = isGodMode,
         stamina = isInfStamina,
-        ghost = isGhostMode,
+        ghost = isGhostMode and not ghostHeldByFreecam,
         frozen = isRokuFrozen,
         slow = isRokuSlow,
         uiHidden = isUiHidden,
@@ -2648,6 +3117,7 @@ local function ResetCheats()
     isGodMode = false
     isInfStamina = false
     isGhostMode = false
+    ghostHeldByFreecam = false
     isRokuFrozen = false
     isRokuSlow = false
     isSpankHold = false
@@ -2741,6 +3211,7 @@ function M.StartLoops()
         if isFollow then
             M.ReapplyFollow()
         end
+        MaintainItemPrompts()
     end
     M._enforceToggles = EnforceToggles
     M._flyTick = M.FlyTick
@@ -2776,6 +3247,7 @@ function M.StartLoops()
     end)
 
     LoopAsync(1000, function()
+        M.PollGraphics()
         rokuCache = nil
         local roku = GetRoku()
         if roku and roku:IsValid() then
@@ -2800,6 +3272,15 @@ function M.StartLoops()
                     lastLiveRokuNm = currentName
                     print(string.format("\n[RokuMenu] Locked onto live Roku: %s\n", currentName))
                     M.OnLevelRoku()
+                    if gfxForce then
+                        local waited = 0
+                        LoopAsync(500, function()
+                            waited = waited + 500
+                            if waited < 2000 then return false end
+                            if gfxForce then M.ApplySavedGraphics() end
+                            return true
+                        end)
+                    end
                     RunOnGameThread(function()
                         if skins[currentSkinIdx] then
                             skins[currentSkinIdx].apply(roku)

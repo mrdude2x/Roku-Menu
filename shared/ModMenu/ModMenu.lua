@@ -6170,7 +6170,8 @@ local TOUCH_TAB_MIN_H = 56
 local TOUCH_TAB_GAP = 8
 local TOUCH_TAB_PAD = 12
 
---- Horizontal tab buttons under title / dock. Fill-width so three names share the row.
+--- Horizontal tab buttons under title / dock.
+--- Auto width so a long name is not squeezed into the next tab.
 function M.BuildStrip(S, contentBox, suffix)
     M.Ensure(S)
     if not M.Enabled(S) then
@@ -6197,7 +6198,7 @@ function M.BuildStrip(S, contentBox, suffix)
         local btn, lbl = CreateTextButton(
             host,
             "ModMenu_Tab" .. tostring(i) .. "_" .. suffix,
-            name,
+            " " .. name .. " ",
             bg,
             fg,
             S.config.fontItem
@@ -6220,9 +6221,10 @@ function M.BuildStrip(S, contentBox, suffix)
         end
         local slot = row:AddChildToHorizontalBox(size or btn)
         pcall(function()
-            slot:SetSize({ SizeRule = 1, Value = 1.0 })
+            -- Automatic, not Fill. Equal columns were clipping Difficulty into Settings.
+            slot:SetSize({ SizeRule = 0, Value = 0.0 })
             slot:SetPadding({
-                Left = (i == 1) and 0 or (touch and TOUCH_TAB_GAP or 4),
+                Left = (i == 1) and 0 or (touch and TOUCH_TAB_GAP or 6),
                 Top = 0,
                 Right = 0,
                 Bottom = 0,

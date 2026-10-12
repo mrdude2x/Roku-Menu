@@ -9,7 +9,7 @@ if not okMenu or not ModMenu then
     print("[RokuMenu] Hotkeys still work (NumPad, NumLock ON).\n")
 else
     ModMenu.Init({
-        title = "RokuMenu v0.4",
+        title = "RokuMenu v0.5",
         instanceId = "RokuMenu",
         key = Key.TAB,
         keyHint = "Tab",
@@ -17,7 +17,7 @@ else
         ignoreLook = true,
         cursorMode = "modmenu",
         tabs = { "Cheats", "Difficulty", "Camera", "Outfits", "Settings", "Bindings" },
-        widthFrac = 0.322,
+        widthFrac = 0.40,
     })
 
     local Config = ModMenu.ConfigManager
@@ -38,6 +38,8 @@ else
             penaltyMode = "on",
             sprintScale = "1",
             chaseScale = "1",
+            gfxForce = false,
+            gfxWanted = {},
         },
     })
     Core.LoadUserSettings({
@@ -52,6 +54,14 @@ else
         Config.Set("cheatState", snap)
     end)
     Core.SetPersistCheats(Config.Get("persistCheats") == true)
+    Core.SetGraphicsStore(function(force, wanted)
+        Config.Set("gfxForce", force == true)
+        Config.Set("gfxWanted", wanted)
+    end)
+    Core.LoadGraphicsPrefs({
+        force = Config.Get("gfxForce") == true,
+        wanted = Config.Get("gfxWanted"),
+    })
     Core.LoadCheatSnapshot(Config.Get("cheatState"))
     local dmgSaved = Config.Get("dmgMode") or "normal"
     if dmgSaved == "off" then
@@ -112,12 +122,26 @@ else
             lock = "Locked"
         end
         pcall(function() ModMenu.SetLabel("Looks", "status", lock) end)
+        for i = 1, #Core.GraphicsRows do
+            local row = Core.GraphicsRows[i]
+            local live = Core.ReadGraphicsLevel(row.id)
+            local shown = ModMenu.Get("GameSettings", row.id)
+            if tostring(shown) ~= tostring(live) then
+                pcall(function() ModMenu.Set("GameSettings", row.id, live) end)
+            end
+        end
     end
 
     Core.OnChange(syncUi)
 
     ModMenu.OnOpen(function()
         syncUi(Core.GetState())
+        for i = 1, #Core.GraphicsRows do
+            local row = Core.GraphicsRows[i]
+            pcall(function()
+                ModMenu.Set("GameSettings", row.id, Core.ReadGraphicsLevel(row.id))
+            end)
+        end
     end)
 
     ModMenu.OnClose(PersistSettings)
@@ -271,11 +295,21 @@ else
                 onChange = function(on) Core.SetUIHidden(on) end,
             },
             {
+                type = "label",
+                id = "photoHint",
+                label = "Also hides the item circles.",
+            },
+            {
                 type = "checkbox",
                 id = "freecam",
                 label = "Freecam",
                 default = false,
                 onChange = function(on) Core.SetFreecam(on) end,
+            },
+            {
+                type = "label",
+                id = "freecamGhost",
+                label = "Turns Ghost on so Roku does not chase. Ghost you already had stays on.",
             },
             {
                 type = "checkbox",
@@ -417,46 +451,103 @@ else
         },
     })
 
+    local settingsItems = {
+        {
+            type = "label",
+            id = "hint",
+            label = "Type a number. Blank is ignored. Volumes apply when you pause typing.",
+        },
+        {
+            type = "number",
+            id = "mouse",
+            label = "Mouse",
+            default = tonumber(Config.Get("mouse")) or 1,
+            min = 0.05,
+            max = 5,
+            integer = false,
+            onChange = function(value)
+                if Core.SetUserSetting("mouse", value) then
+                    Config.Set("mouse", tonumber(value))
+                    Config.Set("hasSaved", true)
+                    Core.ApplyUserSettings()
+                end
+            end,
+        },
+        { type = "separator" },
+        { type = "label", id = "volumes", label = "Volumes" },
+        {
+            type = "number",
+            id = "music",
+            label = "Music",
+            default = tonumber(Config.Get("music")) or 1,
+            min = 0,
+            max = 1,
+            integer = false,
+            onChange = function(value)
+                if Core.SetUserSetting("music", value) then
+                    Config.Set("music", tonumber(value))
+                    Config.Set("hasSaved", true)
+                    Core.ApplyUserSettings()
+                end
+            end,
+        },
+        {
+            type = "number",
+            id = "sfx",
+            label = "Effects",
+            default = tonumber(Config.Get("sfx")) or 1,
+            min = 0,
+            max = 1,
+            integer = false,
+            onChange = function(value)
+                if Core.SetUserSetting("sfx", value) then
+                    Config.Set("sfx", tonumber(value))
+                    Config.Set("hasSaved", true)
+                    Core.ApplyUserSettings()
+                end
+            end,
+        },
+        { type = "separator" },
+        { type = "label", id = "graphics", label = "Graphics" },
+        {
+            type = "label",
+            id = "gfxHint",
+            label = "Rows show what the game is using. The Quality menu can change them.",
+        },
+        {
+            type = "checkbox",
+            id = "gfxForce",
+            label = "Force these on map load",
+            default = Config.Get("gfxForce") == true,
+            onChange = function(on)
+                Core.SetGraphicsForce(on)
+            end,
+        },
+        {
+            type = "label",
+            id = "gfxForceHint",
+            label = "Saves these rows and puts them back after the next map loads.",
+        },
+    }
+    for i = 1, #Core.GraphicsRows do
+        local row = Core.GraphicsRows[i]
+        local gfxId = row.id
+        settingsItems[#settingsItems + 1] = {
+            type = "dropdown",
+            id = gfxId,
+            label = row.label,
+            options = Core.QualityOptions,
+            default = Core.ReadGraphicsLevel(gfxId),
+            onChange = function(value)
+                Core.SetGraphicsLevel(gfxId, value)
+            end,
+        }
+    end
     ModMenu.Register({
         id = "GameSettings",
         title = "Game settings",
         tab = "Settings",
-        items = {
-            {
-                type = "label",
-                id = "hint",
-                label = "Type a number. Blank is ignored. Close the menu to save and apply.",
-            },
-            {
-                type = "number",
-                id = "mouse",
-                label = "Mouse",
-                default = tonumber(Config.Get("mouse")) or 1,
-                min = 0.05,
-                max = 5,
-                integer = false,
-            },
-            { type = "separator" },
-            { type = "label", id = "volumes", label = "Volumes" },
-            {
-                type = "number",
-                id = "music",
-                label = "Music",
-                default = tonumber(Config.Get("music")) or 1,
-                min = 0,
-                max = 1,
-                integer = false,
-            },
-            {
-                type = "number",
-                id = "sfx",
-                label = "Effects",
-                default = tonumber(Config.Get("sfx")) or 1,
-                min = 0,
-                max = 1,
-                integer = false,
-            },
-        },
+        items = settingsItems,
     })
 
 -- Hotkey list. Empty default means the row shows None until the user assigns a key.
@@ -704,12 +795,12 @@ else
         end
     end
 
-    print("[RokuMenu] Overlay ready. v0.4. Press Tab to open.\n")
+    print("[RokuMenu] Overlay ready. v0.5. Press Tab to open.\n")
 end
 
 Core.StartLoops()
 
-print("[RokuMenu] Loaded v0.4. Tab = menu. NumPad keys are ignored while the menu is open.")
+print("[RokuMenu] Loaded v0.5. Tab = menu. NumPad keys are ignored while the menu is open.")
 print("[RokuMenu] Disable GONTrainer while this is enabled.\n")
 
 if type(ModRef) == "table" then

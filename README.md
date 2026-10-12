@@ -12,7 +12,8 @@ Grab a version from **[Releases](https://github.com/mrdude2x/Roku-Menu/releases)
 
 | Version | Date | Download |
 | --- | --- | --- |
-| **v0.4** (latest, GON 1.3) | 2026-10-08 | [RokuMenu_v0.4.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.4/RokuMenu_v0.4.zip) |
+| **v0.5** (latest, GON 1.3) | 2026-10-11 | [RokuMenu_v0.5.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.5/RokuMenu_v0.5.zip) |
+| v0.4 | 2026-10-08 | [RokuMenu_v0.4.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.4/RokuMenu_v0.4.zip) |
 | v0.3 | 2026-10-02 | [RokuMenu_v0.3.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.3/RokuMenu_v0.3.zip) |
 | v0.2.1 | 2026-09-26 | [RokuMenu_v0.2.1.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.2.1/RokuMenu_v0.2.1.zip) |
 | v0.2 | 2026-09-25 | [RokuMenu_v0.2.zip](https://github.com/mrdude2x/Roku-Menu/releases/download/v0.2/RokuMenu_v0.2.zip) |
@@ -48,4 +49,4 @@ Install_Guide.pdf
 
 ## Current version
 
-v0.4 for GON 1.3. Full feature list is in `ReadMe.txt`.
+v0.5 for GON 1.3. Full feature list is in `ReadMe.txt`.
